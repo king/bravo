@@ -32,7 +32,7 @@ import com.king.bravo.utils.RocksDBKeySerializationUtils;
  * to write it back.
  *
  */
-public class KeyedStateRow extends Tuple3<Short, byte[], byte[]> {
+public class KeyedStateRow extends Tuple3<String, byte[], byte[]> {
 
 	private static final long serialVersionUID = 1L;
 
@@ -40,11 +40,11 @@ public class KeyedStateRow extends Tuple3<Short, byte[], byte[]> {
 		super();
 	}
 
-	public KeyedStateRow(short stateId, byte[] keyAndNamespaceBytes, byte[] valueBytes) {
-		super(stateId, keyAndNamespaceBytes, valueBytes);
+	public KeyedStateRow(String stateName, byte[] keyAndNamespaceBytes, byte[] valueBytes) {
+		super(stateName, keyAndNamespaceBytes, valueBytes);
 	}
 
-	public Short getStateId() {
+	public String getStateName() {
 		return f0;
 	}
 
@@ -67,7 +67,7 @@ public class KeyedStateRow extends Tuple3<Short, byte[], byte[]> {
 				getKeyGroup(maxParallelism));
 	}
 
-	public Tuple2<Integer, Short> getKeyGroupAndStateId(int maxParallelism) throws IOException {
-		return Tuple2.of(getKeyGroup(maxParallelism), getStateId());
+	public Tuple2<Integer, String> getKeyGroupAndStateName(int maxParallelism) throws IOException {
+		return Tuple2.of(getKeyGroup(maxParallelism), getStateName());
 	}
 }

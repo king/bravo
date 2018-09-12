@@ -18,15 +18,16 @@
 package com.king.bravo.reader;
 
 import java.util.Collection;
-import java.util.Collections;
+import java.util.HashSet;
 
+import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
 
 import com.king.bravo.api.KeyedStateRow;
-import com.king.bravo.reader.inputformat.KeyedStateInputFormat;
+import com.king.bravo.reader.inputformat.RocksDBKeyedStateInputFormat;
 import com.king.bravo.utils.StateMetadataUtils;
 import com.king.bravo.writer.StateTransformer;
 
@@ -46,26 +47,31 @@ public class KeyedStateReader {
 
 	private final DataSet<KeyedStateRow> allRows;
 	private final OperatorState opState;
-
-	private DataSet<KeyedStateRow> unparsedRows;
+	private final HashSet<String> parsedStates = new HashSet<>();
 
 	private KeyedStateReader(OperatorState opState, DataSet<KeyedStateRow> unparsedState) {
 		this.opState = opState;
 		this.allRows = unparsedState;
-		this.unparsedRows = allRows;
 	}
 
-	private KeyedStateReader(OperatorState opState, ExecutionEnvironment env, Collection<String> stateNames) {
-		this(opState, env.createInput(
-				new KeyedStateInputFormat(opState, StateMetadataUtils.getKeyedStateIds(opState, stateNames).values())));
+	private KeyedStateReader(OperatorState opState, ExecutionEnvironment env, FilterFunction<String> stateFilter) {
+		this(opState, env.createInput(new RocksDBKeyedStateInputFormat(opState, stateFilter)));
+	}
+
+	private KeyedStateReader(OperatorState opState, ExecutionEnvironment env, HashSet<String> stateNames) {
+		this(opState, env, name -> stateNames.contains(name));
 	}
 
 	public KeyedStateReader(Savepoint sp, String uid, ExecutionEnvironment env) {
-		this(StateMetadataUtils.getOperatorState(sp, uid), env, Collections.emptyList());
+		this(StateMetadataUtils.getOperatorState(sp, uid), env, i -> true);
 	}
 
 	public KeyedStateReader(Savepoint sp, String uid, ExecutionEnvironment env, Collection<String> stateNames) {
-		this(StateMetadataUtils.getOperatorState(sp, uid), env, stateNames);
+		this(StateMetadataUtils.getOperatorState(sp, uid), env, new HashSet<>(stateNames));
+	}
+
+	public OperatorState getOperatorState() {
+		return opState;
 	}
 
 	/**
@@ -77,8 +83,7 @@ public class KeyedStateReader {
 	public <K, V, O> DataSet<O> readValueStates(ValueStateReader<K, V, O> parser) throws Exception {
 		parser.init(opState);
 		DataSet<O> parsedState = allRows.flatMap(parser);
-		unparsedRows = unparsedRows.filter(ksr -> parser.getParserStateId() != ksr.getStateId());
-
+		parsedStates.add(parser.getStateName());
 		return parsedState;
 	}
 
@@ -90,11 +95,12 @@ public class KeyedStateReader {
 	}
 
 	/**
-	 * Returm ll the keyed state rows that were not accessed using a reader. This is
-	 * a convenience method so we can union the untouched part of the state with the
-	 * changed parts before writing them back.
+	 * Return all the keyed state rows that were not accessed using a reader. This
+	 * is a convenience method so we can union the untouched part of the state with
+	 * the changed parts before writing them back.
 	 */
-	public DataSet<KeyedStateRow> getUnparsedStateRows() {
-		return unparsedRows;
+	public DataSet<KeyedStateRow> getRemainingStateRows() {
+		HashSet<String> parsed = new HashSet<>(parsedStates);
+		return allRows.filter(row -> !parsed.contains(row.f0));
 	}
 }

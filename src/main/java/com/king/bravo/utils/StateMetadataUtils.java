@@ -34,10 +34,13 @@ import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
 import org.apache.flink.runtime.checkpoint.savepoint.SavepointV2;
 import org.apache.flink.runtime.jobgraph.OperatorID;
-import org.apache.flink.runtime.state.KeyGroupsStateHandle;
 import org.apache.flink.runtime.state.KeyedBackendSerializationProxy;
 import org.apache.flink.runtime.state.OperatorBackendSerializationProxy;
 import org.apache.flink.runtime.state.OperatorStateHandle;
+import org.apache.flink.runtime.state.SnappyStreamCompressionDecorator;
+import org.apache.flink.runtime.state.StreamCompressionDecorator;
+import org.apache.flink.runtime.state.StreamStateHandle;
+import org.apache.flink.runtime.state.UncompressedStreamCompressionDecorator;
 import org.apache.flink.runtime.state.VoidNamespaceSerializer;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot.CommonSerializerKeys;
@@ -155,19 +158,36 @@ public class StateMetadataUtils {
 	}
 
 	public static KeyedBackendSerializationProxy<?> getKeyedBackendSerializationProxy(OperatorState opState) {
-		final KeyGroupsStateHandle keyedHandle = firstKeyGroupStateHandle(opState);
-		return getKeyedBackendSerializationProxy(keyedHandle);
+		return getKeyedBackendSerializationProxy(firstKeyGroupStateHandle(opState));
 	}
 
-	private static KeyGroupsStateHandle firstKeyGroupStateHandle(OperatorState opState) {
-		return (KeyGroupsStateHandle) opState.getState(0).getManagedKeyedState().iterator().next();
+	private static StreamStateHandle firstKeyGroupStateHandle(OperatorState opState) {
+		return (StreamStateHandle) opState.getState(0).getManagedKeyedState().iterator().next();
 	}
 
-	private static KeyedBackendSerializationProxy<?> getKeyedBackendSerializationProxy(
-			KeyGroupsStateHandle keyedHandle) {
+	public static StreamCompressionDecorator getCompressionDecorator(KeyedBackendSerializationProxy<?> proxy) {
+		return proxy.isUsingKeyGroupCompression()
+				? SnappyStreamCompressionDecorator.INSTANCE
+				: UncompressedStreamCompressionDecorator.INSTANCE;
+	}
+
+	public static Map<Integer, String> getStateIdMapping(KeyedBackendSerializationProxy<?> proxy) {
+		Map<Integer, String> stateIdMapping = new HashMap<>();
+
+		int stateId = 0;
+		for (StateMetaInfoSnapshot snapshot : proxy.getStateMetaInfoSnapshots()) {
+			stateIdMapping.put(stateId, snapshot.getName());
+			stateId++;
+		}
+
+		return stateIdMapping;
+	}
+
+	public static KeyedBackendSerializationProxy<?> getKeyedBackendSerializationProxy(
+			StreamStateHandle streamStateHandle) {
 		KeyedBackendSerializationProxy<Integer> serializationProxy = new KeyedBackendSerializationProxy<>(
 				StateMetadataUtils.class.getClassLoader(), false);
-		try (FSDataInputStream is = keyedHandle.openInputStream()) {
+		try (FSDataInputStream is = streamStateHandle.openInputStream()) {
 			DataInputViewStreamWrapper iw = new DataInputViewStreamWrapper(is);
 			serializationProxy.read(iw);
 			return serializationProxy;

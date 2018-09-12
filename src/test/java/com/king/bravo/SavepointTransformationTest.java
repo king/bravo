@@ -113,7 +113,7 @@ public class SavepointTransformationTest extends TestLogger {
 		StateTransformer stateBuilder = new StateTransformer(savepoint, new Path(cpDir, "new"));
 		DataSet<KeyedStateRow> newStateRows = stateBuilder.createKeyedStateRows("hello", "Count", newStates);
 
-		stateBuilder.replaceKeyedState("hello", newStateRows.union(reader.getUnparsedStateRows()));
+		stateBuilder.replaceKeyedStates("hello", newStateRows.union(reader.getRemainingStateRows()));
 		stateBuilder.writeSavepointMetadata();
 
 		return stateBuilder.getNewCheckpointPath();

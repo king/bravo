@@ -19,6 +19,7 @@ package com.king.bravo.writer;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.UUID;
@@ -39,6 +40,7 @@ import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.state.CheckpointStreamFactory;
 import org.apache.flink.runtime.state.CheckpointedStateScope;
+import org.apache.flink.runtime.state.KeyGroupsStateHandle;
 import org.apache.flink.runtime.state.KeyedBackendSerializationProxy;
 import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.OperatorStateBackend;
@@ -50,7 +52,7 @@ import com.king.bravo.api.KeyedStateRow;
 import com.king.bravo.reader.ManagedOperatorStateReader;
 import com.king.bravo.utils.SerializableSupplier;
 import com.king.bravo.utils.StateMetadataUtils;
-import com.king.bravo.writer.functions.KeyGroupAndStateIdKey;
+import com.king.bravo.writer.functions.KeyGroupAndStateNameKey;
 import com.king.bravo.writer.functions.KeyedStateWriterFunction;
 import com.king.bravo.writer.functions.MapToKeyedStateRow;
 import com.king.bravo.writer.functions.OperatorIndexForKeyGroupKey;
@@ -126,6 +128,18 @@ public class StateTransformer {
 		savepoint = StateMetadataUtils.createNewSavepoint(savepoint, transformedOperatorState);
 	}
 
+	/**
+	 * Convert state Key-Value tuples into KeyedStateRows for writing them to a
+	 * savepoint later.
+	 * 
+	 * @param uid
+	 *            Operator uid for the state
+	 * @param stateName
+	 *            Value state name
+	 * @param newState
+	 *            Dataset containing the K-V pairs
+	 * @return DataSet of KeyedStateRows
+	 */
 	public <K, V> DataSet<KeyedStateRow> createKeyedStateRows(String uid, String stateName,
 			DataSet<Tuple2<K, V>> newState) {
 		return createKeyedStateRows(StateMetadataUtils.getOperatorState(savepoint, uid), stateName, newState);
@@ -141,11 +155,21 @@ public class StateTransformer {
 				.map(new MapToKeyedStateRow<>(stateName, proxySupplier.get(), oldState.getMaxParallelism()));
 	}
 
-	public void replaceKeyedState(String uid, DataSet<KeyedStateRow> states) throws Exception {
-		replaceKeyedState(StateMetadataUtils.getOperatorState(savepoint, uid), states);
+	/**
+	 * Replace all KeyedStates for an operator from a DataSet of KeyedStateRows. Any
+	 * state not contained in the DataSet will be dropped.
+	 * 
+	 * @param uid
+	 *            Uid of the operator
+	 * @param states
+	 *            New keyed state of the operator
+	 * @throws Exception
+	 */
+	public void replaceKeyedStates(String uid, DataSet<KeyedStateRow> states) throws Exception {
+		replaceKeyedStates(StateMetadataUtils.getOperatorState(savepoint, uid), states);
 	}
 
-	public void replaceKeyedState(OperatorState oldState, DataSet<KeyedStateRow> states)
+	public void replaceKeyedStates(OperatorState oldState, DataSet<KeyedStateRow> states)
 			throws Exception {
 
 		int maxParallelism = oldState.getMaxParallelism();
@@ -153,11 +177,15 @@ public class StateTransformer {
 
 		Path outDir = makeOutputDir(oldState.getOperatorID());
 
+		Map<Integer, KeyGroupsStateHandle> oldHandles = new HashMap<>();
+		oldState.getSubtaskStates().forEach((i, state) -> {
+			oldHandles.put(i, (KeyGroupsStateHandle) state.getManagedKeyedState().iterator().next());
+		});
+
 		DataSet<Tuple2<Integer, KeyedStateHandle>> handles = states
 				.groupBy(new OperatorIndexForKeyGroupKey(maxParallelism, parallelism))
-				.sortGroup(new KeyGroupAndStateIdKey(maxParallelism), Order.ASCENDING)
-				.reduceGroup(new KeyedStateWriterFunction(maxParallelism, parallelism, StateMetadataUtils
-						.getKeyedBackendSerializationProxySupplier(oldState), outDir));
+				.sortGroup(new KeyGroupAndStateNameKey(maxParallelism), Order.ASCENDING)
+				.reduceGroup(new KeyedStateWriterFunction(maxParallelism, parallelism, oldHandles, outDir));
 
 		Map<Integer, KeyedStateHandle> handleMap = handles.collect().stream()
 				.collect(Collectors.toMap(t -> t.f0, t -> t.f1));

@@ -22,18 +22,18 @@ import org.apache.flink.api.java.tuple.Tuple2;
 
 import com.king.bravo.api.KeyedStateRow;
 
-public class KeyGroupAndStateIdKey
-		implements KeySelector<KeyedStateRow, Tuple2<Integer, Short>> {
+public class KeyGroupAndStateNameKey
+		implements KeySelector<KeyedStateRow, Tuple2<Integer, String>> {
 
 	private static final long serialVersionUID = 1L;
 	private int maxParallelism;
 
-	public KeyGroupAndStateIdKey(int maxParallelism) {
+	public KeyGroupAndStateNameKey(int maxParallelism) {
 		this.maxParallelism = maxParallelism;
 	}
 
 	@Override
-	public Tuple2<Integer, Short> getKey(KeyedStateRow row) throws Exception {
-		return row.getKeyGroupAndStateId(maxParallelism);
+	public Tuple2<Integer, String> getKey(KeyedStateRow row) throws Exception {
+		return row.getKeyGroupAndStateName(maxParallelism);
 	}
 }

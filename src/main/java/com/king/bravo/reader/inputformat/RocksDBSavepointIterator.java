@@ -25,10 +25,11 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Iterator;
-import java.util.Set;
+import java.util.Map;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.typeutils.base.array.BytePrimitiveArraySerializer;
 import org.apache.flink.core.fs.FSDataInputStream;
 import org.apache.flink.core.memory.DataInputViewStreamWrapper;
@@ -36,13 +37,12 @@ import org.apache.flink.runtime.state.KeyGroupRangeOffsets;
 import org.apache.flink.runtime.state.KeyGroupsStateHandle;
 import org.apache.flink.runtime.state.KeyedBackendSerializationProxy;
 import org.apache.flink.runtime.state.KeyedStateHandle;
-import org.apache.flink.runtime.state.SnappyStreamCompressionDecorator;
 import org.apache.flink.runtime.state.StreamCompressionDecorator;
-import org.apache.flink.runtime.state.UncompressedStreamCompressionDecorator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.king.bravo.api.KeyedStateRow;
+import com.king.bravo.utils.StateMetadataUtils;
 
 /**
  * Iterator over the raw keyed state stored in a RocksDB full snapshot
@@ -53,25 +53,27 @@ import com.king.bravo.api.KeyedStateRow;
  * others are ignored.
  *
  */
-public class KeyedStateGroupReader implements Iterator<KeyedStateRow>, Closeable, Iterable<KeyedStateRow> {
+public class RocksDBSavepointIterator implements Iterator<KeyedStateRow>, Closeable, Iterable<KeyedStateRow> {
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(KeyedStateGroupReader.class);
+	private static final Logger LOGGER = LoggerFactory.getLogger(RocksDBSavepointIterator.class);
 
 	private final KeyGroupsStateHandle keyGroupsStateHandle;
-	private final Set<Integer> targetStateIds;
-	private final boolean filterStateIds;
 
 	private FSDataInputStream stateHandleInStream;
 	private Iterator<Long> offsetsIt;
 	private DataInputViewStreamWrapper compressedInputView;
+	private Map<Integer, String> stateIdMapping;
 
 	private boolean hasNext = true;
 	private int stateId;
 
-	public KeyedStateGroupReader(KeyedStateHandle keyedStateHandle, Set<Integer> targetStateIds) {
-		this.keyGroupsStateHandle = (KeyGroupsStateHandle) keyedStateHandle;
-		this.targetStateIds = targetStateIds;
-		filterStateIds = !targetStateIds.isEmpty();
+	private String stateName;
+
+	private final FilterFunction<String> stateFilter;
+
+	public RocksDBSavepointIterator(KeyGroupsStateHandle keyedStateHandle, FilterFunction<String> stateFilter) {
+		this.stateFilter = stateFilter;
+		this.keyGroupsStateHandle = keyedStateHandle;
 	}
 
 	@Override
@@ -85,7 +87,7 @@ public class KeyedStateGroupReader implements Iterator<KeyedStateRow>, Closeable
 			// TODO reduce GC pressure
 			// return nextRecord(reuse);
 			return nextRecord(new KeyedStateRow());
-		} catch (IOException e) {
+		} catch (Exception e) {
 			throw new RuntimeException(e);
 		}
 	}
@@ -98,7 +100,7 @@ public class KeyedStateGroupReader implements Iterator<KeyedStateRow>, Closeable
 		}
 	}
 
-	private final KeyedStateRow nextRecord(KeyedStateRow reuse) throws IOException {
+	private final KeyedStateRow nextRecord(KeyedStateRow reuse) throws Exception {
 		if (!openIfNeeded()) {
 			return null;
 		}
@@ -106,18 +108,18 @@ public class KeyedStateGroupReader implements Iterator<KeyedStateRow>, Closeable
 		byte[] key = BytePrimitiveArraySerializer.INSTANCE.deserialize(compressedInputView);
 		byte[] value = BytePrimitiveArraySerializer.INSTANCE.deserialize(compressedInputView);
 
-		reuse.f0 = (short) stateId;
+		reuse.f0 = stateName;
 		reuse.f1 = key;
 		reuse.f2 = value;
 
 		if (hasMetaDataFollowsFlag(reuse.f1)) {
 			clearMetaDataFollowsFlag(reuse.f1);
 
-			stateId = seekNextStateId(true);
+			seekNextStateId(true);
 			while (stateId == END_OF_KEY_GROUP_MARK && hasNext) {
 				hasNext = seekNextOffset();
 				if (hasNext) {
-					stateId = seekNextStateId(false);
+					seekNextStateId(false);
 				}
 			}
 		}
@@ -127,21 +129,17 @@ public class KeyedStateGroupReader implements Iterator<KeyedStateRow>, Closeable
 		return reuse;
 	}
 
-	private boolean openIfNeeded() throws IOException {
+	private boolean openIfNeeded() throws Exception {
 		if (stateHandleInStream == null) {
 			LOGGER.debug("Opening {}", keyGroupsStateHandle.getDelegateStateHandle());
 			stateHandleInStream = keyGroupsStateHandle.openInputStream();
 
-			final DataInputViewStreamWrapper stateHandleInView = new DataInputViewStreamWrapper(stateHandleInStream);
+			final KeyedBackendSerializationProxy<?> serializationProxy = StateMetadataUtils
+					.getKeyedBackendSerializationProxy(keyGroupsStateHandle);
 
-			final KeyedBackendSerializationProxy<?> serializationProxy = new KeyedBackendSerializationProxy<>(
-					getClass().getClassLoader(), false);
-			serializationProxy.read(stateHandleInView);
-
-			final StreamCompressionDecorator streamCompressionDecorator = serializationProxy
-					.isUsingKeyGroupCompression()
-							? SnappyStreamCompressionDecorator.INSTANCE
-							: UncompressedStreamCompressionDecorator.INSTANCE;
+			this.stateIdMapping = StateMetadataUtils.getStateIdMapping(serializationProxy);
+			final StreamCompressionDecorator streamCompressionDecorator = StateMetadataUtils
+					.getCompressionDecorator(serializationProxy);
 
 			final KeyGroupRangeOffsets rangeOffsets = keyGroupsStateHandle.getGroupRangeOffsets();
 			LOGGER.debug("{}", rangeOffsets);
@@ -154,7 +152,7 @@ public class KeyedStateGroupReader implements Iterator<KeyedStateRow>, Closeable
 				final InputStream compressedInputStream = streamCompressionDecorator
 						.decorateWithCompression(stateHandleInStream);
 				compressedInputView = new DataInputViewStreamWrapper(compressedInputStream);
-				stateId = seekNextStateId(false);
+				seekNextStateId(false);
 			}
 		}
 
@@ -171,14 +169,15 @@ public class KeyedStateGroupReader implements Iterator<KeyedStateRow>, Closeable
 		return hasNext;
 	}
 
-	private int seekNextStateId(boolean metaFollows) throws IOException {
+	private void seekNextStateId(boolean metaFollows) throws Exception {
 
 		int stateId = compressedInputView.readShort();
+		String stateName = stateIdMapping.get(stateId);
 		if (metaFollows) {
 			stateId = END_OF_KEY_GROUP_MARK & stateId;
 		}
 
-		while (filterStateIds && !targetStateIds.contains(stateId) && stateId != END_OF_KEY_GROUP_MARK) {
+		while (!stateFilter.filter(stateName) && stateId != END_OF_KEY_GROUP_MARK) {
 
 			final int keySize = compressedInputView.readInt();
 			final byte keyByte0 = compressedInputView.readByte();
@@ -189,10 +188,12 @@ public class KeyedStateGroupReader implements Iterator<KeyedStateRow>, Closeable
 
 			if (hasMetaDataFollowsFlag(keyByte0)) {
 				stateId = END_OF_KEY_GROUP_MARK & compressedInputView.readShort();
+				stateName = stateIdMapping.get(stateId);
 			}
 		}
 
-		return stateId;
+		this.stateId = stateId;
+		this.stateName = stateName;
 	}
 
 	public Stream<KeyedStateRow> stream() {

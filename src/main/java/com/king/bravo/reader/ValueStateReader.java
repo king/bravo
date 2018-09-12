@@ -50,7 +50,7 @@ public abstract class ValueStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	private static final Logger LOGGER = LoggerFactory.getLogger(ValueStateReader.class);
 	private static final long serialVersionUID = 1L;
 
-	private final String stateName;
+	protected final String stateName;
 
 	protected TypeSerializer<K> keyDeserializer;
 	protected TypeSerializer<V> valueDeserializer;
@@ -58,7 +58,6 @@ public abstract class ValueStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	private final TypeInformation<K> keyType;
 	private final TypeInformation<V> valueType;
 
-	protected Short stateId;
 	protected int keygroupPrefixBytes;
 
 	protected boolean initialized = false;
@@ -94,7 +93,6 @@ public abstract class ValueStateReader<K, V, O> extends RichFlatMapFunction<Keye
 			keyDeserializer = (TypeSerializer<K>) serializationProxy.getKeySerializer();
 		}
 
-		short stateId = 0;
 		List<StateMetaInfoSnapshot> stateMetaInfoSnapshots = serializationProxy.getStateMetaInfoSnapshots();
 
 		for (StateMetaInfoSnapshot snapshot : stateMetaInfoSnapshots) {
@@ -103,11 +101,9 @@ public abstract class ValueStateReader<K, V, O> extends RichFlatMapFunction<Keye
 					valueDeserializer = (TypeSerializer<V>) snapshot
 							.getTypeSerializer(CommonSerializerKeys.VALUE_SERIALIZER);
 				}
-				this.stateId = stateId;
 				this.initialized = true;
 				return;
 			}
-			stateId++;
 		}
 
 		throw new IllegalArgumentException("Could not find any keyed state with name " + stateName);
@@ -185,11 +181,7 @@ public abstract class ValueStateReader<K, V, O> extends RichFlatMapFunction<Keye
 		return forStateValues(stateName, outValueTypeHint.getTypeInfo());
 	}
 
-	public short getParserStateId() {
-		return stateId;
-	}
-
-	public String getParsedStateName() {
+	public String getStateName() {
 		return stateName;
 	}
 
@@ -204,7 +196,7 @@ public abstract class ValueStateReader<K, V, O> extends RichFlatMapFunction<Keye
 
 		@Override
 		public void flatMap(KeyedStateRow row, Collector<Tuple2<K, V>> out) throws Exception {
-			if (!stateId.equals(row.getStateId())) {
+			if (!stateName.equals(row.getStateName())) {
 				return;
 			}
 
@@ -233,7 +225,7 @@ public abstract class ValueStateReader<K, V, O> extends RichFlatMapFunction<Keye
 
 		@Override
 		public void flatMap(KeyedStateRow row, Collector<V> out) throws Exception {
-			if (!stateId.equals(row.getStateId())) {
+			if (!stateName.equals(row.getStateName())) {
 				return;
 			}
 

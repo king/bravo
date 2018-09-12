@@ -33,8 +33,8 @@ import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot.CommonSeria
 import org.apache.flink.util.InstantiationUtil;
 
 import com.king.bravo.api.KeyedStateRow;
-import com.king.bravo.utils.StateMetadataUtils;
 import com.king.bravo.utils.RocksDBKeySerializationUtils;
+import com.king.bravo.utils.StateMetadataUtils;
 
 public class MapToKeyedStateRow<K, V> implements MapFunction<Tuple2<K, V>, KeyedStateRow> {
 
@@ -42,33 +42,32 @@ public class MapToKeyedStateRow<K, V> implements MapFunction<Tuple2<K, V>, Keyed
 	private final int maxParallelism;
 	private final TypeSerializer<K> keySerializer;
 	private final TypeSerializer<V> valueSerializer;
-	private final short stateId;
 	private final int keygroupPrefixBytes;
+	private final String stateName;
 
 	@SuppressWarnings("unchecked")
-	public MapToKeyedStateRow(String string, KeyedBackendSerializationProxy<?> serializationProxy, int maxParallelism) {
+	public MapToKeyedStateRow(String stateName, KeyedBackendSerializationProxy<?> serializationProxy,
+			int maxParallelism) {
+		this.stateName = stateName;
 		this.maxParallelism = maxParallelism;
 		keygroupPrefixBytes = StateMetadataUtils.getKeyGroupPrefixBytes(maxParallelism);
 		keySerializer = (TypeSerializer<K>) serializationProxy.getKeySerializer();
 
-		short stateId = 0;
 		List<StateMetaInfoSnapshot> stateMetaInfoSnapshots = serializationProxy
 				.getStateMetaInfoSnapshots();
 
 		for (StateMetaInfoSnapshot snapshot : stateMetaInfoSnapshots) {
-			if (snapshot.getName().equals(string)) {
+			if (snapshot.getName().equals(stateName)) {
 				if (!(snapshot.getTypeSerializer(
 						CommonSerializerKeys.NAMESPACE_SERIALIZER) instanceof VoidNamespaceSerializer)) {
 					throw new RuntimeException("Only operators states without namespaces are supported at the moment");
 				}
 				valueSerializer = (TypeSerializer<V>) snapshot.getTypeSerializer(CommonSerializerKeys.VALUE_SERIALIZER);
-				this.stateId = stateId;
 				return;
 			}
-			stateId++;
 		}
 
-		throw new RuntimeException("Could not find any keyed state with name " + string);
+		throw new RuntimeException("Could not find any keyed state with name " + stateName);
 	}
 
 	@Override
@@ -83,7 +82,7 @@ public class MapToKeyedStateRow<K, V> implements MapFunction<Tuple2<K, V>, Keyed
 				ov, false);
 
 		os.close();
-		return new KeyedStateRow(stateId, os.toByteArray(),
+		return new KeyedStateRow(stateName, os.toByteArray(),
 				InstantiationUtil.serializeToByteArray(valueSerializer, t.f1));
 	}
 }

@@ -20,14 +20,13 @@ package com.king.bravo.writer.functions;
 import static com.king.bravo.utils.KeyGroupFlags.END_OF_KEY_GROUP_MARK;
 import static com.king.bravo.utils.KeyGroupFlags.setMetaDataFollowsFlagInKey;
 
-import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Map;
 import java.util.UUID;
 
 import org.apache.flink.api.common.functions.RichGroupReduceFunction;
 import org.apache.flink.api.common.typeutils.base.array.BytePrimitiveArraySerializer;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.FSDataOutputStream;
 import org.apache.flink.core.fs.FileSystem.WriteMode;
 import org.apache.flink.core.fs.Path;
@@ -38,16 +37,15 @@ import org.apache.flink.runtime.state.KeyGroupRangeOffsets;
 import org.apache.flink.runtime.state.KeyGroupsStateHandle;
 import org.apache.flink.runtime.state.KeyedBackendSerializationProxy;
 import org.apache.flink.runtime.state.KeyedStateHandle;
-import org.apache.flink.runtime.state.SnappyStreamCompressionDecorator;
 import org.apache.flink.runtime.state.StreamCompressionDecorator;
-import org.apache.flink.runtime.state.UncompressedStreamCompressionDecorator;
 import org.apache.flink.runtime.state.filesystem.FileStateHandle;
 import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.HashBiMap;
 import com.king.bravo.api.KeyedStateRow;
-import com.king.bravo.utils.SerializableSupplier;
+import com.king.bravo.utils.StateMetadataUtils;
 
 public class KeyedStateWriterFunction
 		extends RichGroupReduceFunction<KeyedStateRow, Tuple2<Integer, KeyedStateHandle>> {
@@ -59,32 +57,25 @@ public class KeyedStateWriterFunction
 	private final int maxParallelism;
 	private final int parallelism;
 	private final Path opStateDir;
-	private final SerializableSupplier<KeyedBackendSerializationProxy<?>> proxySupplier;
-
-	private transient StreamCompressionDecorator keyGroupCompressionDecorator;
-	private transient KeyedBackendSerializationProxy<?> serializationProxy;
+	private final Map<Integer, KeyGroupsStateHandle> handles;
 
 	public KeyedStateWriterFunction(int maxParallelism, int parallelism,
-			SerializableSupplier<KeyedBackendSerializationProxy<?>> proxySupplier,
+			Map<Integer, KeyGroupsStateHandle> handles,
 			Path opStateDir) {
 		this.maxParallelism = maxParallelism;
 		this.parallelism = parallelism;
-		this.proxySupplier = proxySupplier;
+		this.handles = handles;
 		this.opStateDir = opStateDir;
-	}
-
-	@Override
-	public void open(Configuration c) throws IOException {
-		serializationProxy = proxySupplier.get();
-		keyGroupCompressionDecorator = serializationProxy.isUsingKeyGroupCompression()
-				? SnappyStreamCompressionDecorator.INSTANCE
-				: UncompressedStreamCompressionDecorator.INSTANCE;
 	}
 
 	@Override
 	public void reduce(Iterable<KeyedStateRow> values,
 			Collector<Tuple2<Integer, KeyedStateHandle>> out)
 			throws Exception {
+
+		KeyedBackendSerializationProxy<?> serializationProxy;
+		StreamCompressionDecorator keyGroupCompressionDecorator = null;
+		Map<String, Integer> stateIdMapping = null;
 
 		Path checkpointFilePath = new Path(opStateDir, String.valueOf(UUID.randomUUID()));
 		FSDataOutputStream checkpointFileStream = null;
@@ -108,9 +99,14 @@ public class KeyedStateWriterFunction
 			if (iterator.hasNext()) {
 				nextRow = iterator.next();
 				previousKeyGroup = nextRow.getKeyGroup(maxParallelism);
-				previousStateId = nextRow.getStateId();
-
 				opIndex = nextRow.getOperatorIndex(maxParallelism, parallelism);
+
+				serializationProxy = StateMetadataUtils.getKeyedBackendSerializationProxy(handles.get(opIndex));
+				stateIdMapping = HashBiMap.create(StateMetadataUtils.getStateIdMapping(serializationProxy)).inverse();
+				keyGroupCompressionDecorator = StateMetadataUtils.getCompressionDecorator(serializationProxy);
+
+				previousStateId = stateIdMapping.get(nextRow.getStateName());
+
 				LOGGER.info("Writing to {}", checkpointFilePath);
 
 				checkpointFileStream = checkpointFilePath.getFileSystem().create(checkpointFilePath,
@@ -144,7 +140,7 @@ public class KeyedStateWriterFunction
 				// set signal in first key byte that meta data will follow in the stream after
 				// this k/v pair
 				int nextKeygroup = nextRow.getKeyGroup(maxParallelism);
-				if (nextKeygroup != previousKeyGroup || nextRow.getStateId() != previousStateId) {
+				if (nextKeygroup != previousKeyGroup || stateIdMapping.get(nextRow.getStateName()) != previousStateId) {
 					setMetaDataFollowsFlagInKey(previousKey);
 				}
 
@@ -163,13 +159,13 @@ public class KeyedStateWriterFunction
 
 					kgOutStream = keyGroupCompressionDecorator.decorateWithCompression(checkpointFileStream);
 					kgOutView = new DataOutputViewStreamWrapper(kgOutStream);
-					kgOutView.writeShort(nextRow.getStateId());
-				} else if (nextRow.getStateId() != previousStateId) {
-					kgOutView.writeShort(nextRow.getStateId());
+					kgOutView.writeShort(stateIdMapping.get(nextRow.getStateName()));
+				} else if (stateIdMapping.get(nextRow.getStateName()) != previousStateId) {
+					kgOutView.writeShort(stateIdMapping.get(nextRow.getStateName()));
 				}
 
 				previousKeyGroup = nextKeygroup;
-				previousStateId = nextRow.getStateId();
+				previousStateId = stateIdMapping.get(nextRow.getStateName());
 				previousKey = nextRow.getKeyAndNamespaceBytes();
 				previousValue = nextRow.getValueBytes();
 			}

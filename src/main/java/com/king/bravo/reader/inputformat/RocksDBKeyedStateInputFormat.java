@@ -18,12 +18,10 @@
 package com.king.bravo.reader.inputformat;
 
 import java.io.IOException;
-import java.util.Collection;
-import java.util.HashSet;
 import java.util.Iterator;
-import java.util.Set;
 import java.util.stream.Stream;
 
+import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.io.DefaultInputSplitAssigner;
 import org.apache.flink.api.common.io.RichInputFormat;
 import org.apache.flink.api.common.io.statistics.BaseStatistics;
@@ -31,6 +29,8 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.CloseableRegistry;
 import org.apache.flink.core.io.InputSplitAssigner;
 import org.apache.flink.runtime.checkpoint.OperatorState;
+import org.apache.flink.runtime.state.IncrementalKeyedStateHandle;
+import org.apache.flink.runtime.state.KeyGroupsStateHandle;
 
 import com.king.bravo.api.KeyedStateRow;
 
@@ -41,20 +41,24 @@ import com.king.bravo.api.KeyedStateRow;
  * Right now the input splits are created by subtaskstate, this could be
  * improved to be split by keygroup in the future
  */
-public class KeyedStateInputFormat extends RichInputFormat<KeyedStateRow, KeyedStateInputSplit> {
+public class RocksDBKeyedStateInputFormat extends RichInputFormat<KeyedStateRow, KeyedStateInputSplit> {
 
 	private static final long serialVersionUID = 1L;
 	private final OperatorState operatorState;
-	private final Set<Integer> targetStateIds;
 
 	private transient CloseableRegistry closeableRegistry;
 	private transient Iterator<KeyedStateRow> rowIt;
 
 	private boolean reachedEnd;
+	private FilterFunction<String> stateFilter;
 
-	public KeyedStateInputFormat(OperatorState operatorState, Collection<Integer> targetStateIds) {
+	public RocksDBKeyedStateInputFormat(OperatorState operatorState) {
+		this(operatorState, i -> true);
+	}
+
+	public RocksDBKeyedStateInputFormat(OperatorState operatorState, FilterFunction<String> stateFilter) {
 		this.operatorState = operatorState;
-		this.targetStateIds = new HashSet<>(targetStateIds);
+		this.stateFilter = stateFilter;
 	}
 
 	@Override
@@ -66,16 +70,29 @@ public class KeyedStateInputFormat extends RichInputFormat<KeyedStateRow, KeyedS
 	public void open(KeyedStateInputSplit split) throws IOException {
 		rowIt = Stream.of(split.getOperatorSubtaskState())
 				.flatMap(subtaskState -> subtaskState.getManagedKeyedState().stream())
-				.map(keyedStateHandle -> new KeyedStateGroupReader(keyedStateHandle, targetStateIds))
-				.peek(reader -> {
+				.map(keyedStateHandle -> {
+					if (keyedStateHandle instanceof IncrementalKeyedStateHandle) {
+						throw new IllegalStateException(
+								"RocksDB incremental checkpoints are not supported at the moment");
+					}
+
+					if (!(keyedStateHandle instanceof KeyGroupsStateHandle)) {
+						throw new IllegalStateException("Unexpected state handle type, " +
+								"expected: " + KeyGroupsStateHandle.class +
+								", but found: " + keyedStateHandle.getClass());
+					} else {
+						return new RocksDBSavepointIterator((KeyGroupsStateHandle) keyedStateHandle, stateFilter);
+
+					}
+				}).peek(reader ->
+
+				{
 					try {
 						closeableRegistry.registerCloseable(reader);
 					} catch (IOException e) {
 						throw new RuntimeException(e);
 					}
-				})
-				.flatMap(KeyedStateGroupReader::stream)
-				.iterator();
+				}).flatMap(RocksDBSavepointIterator::stream).iterator();
 	}
 
 	@Override
