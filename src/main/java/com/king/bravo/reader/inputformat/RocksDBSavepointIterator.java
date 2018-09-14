@@ -41,7 +41,7 @@ import org.apache.flink.runtime.state.StreamCompressionDecorator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.king.bravo.api.KeyedStateRow;
+import com.king.bravo.types.KeyedStateRow;
 import com.king.bravo.utils.StateMetadataUtils;
 
 /**

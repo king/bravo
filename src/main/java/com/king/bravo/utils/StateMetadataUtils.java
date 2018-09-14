@@ -24,9 +24,12 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
+import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.core.fs.FSDataInputStream;
+import org.apache.flink.core.fs.FileSystem.WriteMode;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.memory.DataInputViewStreamWrapper;
 import org.apache.flink.runtime.checkpoint.Checkpoints;
@@ -35,8 +38,6 @@ import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
 import org.apache.flink.runtime.checkpoint.savepoint.SavepointV2;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.state.KeyedBackendSerializationProxy;
-import org.apache.flink.runtime.state.OperatorBackendSerializationProxy;
-import org.apache.flink.runtime.state.OperatorStateHandle;
 import org.apache.flink.runtime.state.SnappyStreamCompressionDecorator;
 import org.apache.flink.runtime.state.StreamCompressionDecorator;
 import org.apache.flink.runtime.state.StreamStateHandle;
@@ -69,28 +70,11 @@ public class StateMetadataUtils {
 				.orElseThrow(() -> new RuntimeException("No operator state with id " + opId.toString()));
 	}
 
-	public static SerializableSupplier<OperatorBackendSerializationProxy> getOperatorBackendSerializationProxySupplier(
-			OperatorState opState) {
-
-		OperatorStateHandle opStateHandle = opState.getState(0).getManagedOperatorState().iterator().next();
-		return () -> {
-			OperatorBackendSerializationProxy serializationProxy = new OperatorBackendSerializationProxy(
-					StateMetadataUtils.class.getClassLoader());
-			try (FSDataInputStream is = opStateHandle.openInputStream()) {
-				DataInputViewStreamWrapper iw = new DataInputViewStreamWrapper(is);
-				serializationProxy.read(iw);
-				return serializationProxy;
-			} catch (IOException e) {
-				throw new RuntimeException(e);
-			}
-		};
-	}
-
 	public static int getKeyedStateId(OperatorState state, String stateName) {
 		int stateId = 0;
 		List<StateMetaInfoSnapshot> stateMetaInfoSnapshots = StateMetadataUtils
-				.getKeyedBackendSerializationProxySupplier(state)
-				.get().getStateMetaInfoSnapshots();
+				.getKeyedBackendSerializationProxy(state)
+				.getStateMetaInfoSnapshots();
 
 		for (StateMetaInfoSnapshot snapshot : stateMetaInfoSnapshots) {
 			if (snapshot.getName().equals(stateName)) {
@@ -109,8 +93,8 @@ public class StateMetadataUtils {
 	public static Map<String, Integer> getKeyedStateIds(OperatorState state, Collection<String> stateNames) {
 		int stateId = 0;
 		List<StateMetaInfoSnapshot> stateMetaInfoSnapshots = StateMetadataUtils
-				.getKeyedBackendSerializationProxySupplier(state)
-				.get().getStateMetaInfoSnapshots();
+				.getKeyedBackendSerializationProxy(state)
+				.getStateMetaInfoSnapshots();
 
 		Map<String, Integer> out = new HashMap<>();
 
@@ -152,11 +136,6 @@ public class StateMetadataUtils {
 		return new SavepointV2(oldSavepoint.getCheckpointId(), newStates.values(), oldSavepoint.getMasterStates());
 	}
 
-	public static SerializableSupplier<KeyedBackendSerializationProxy<?>> getKeyedBackendSerializationProxySupplier(
-			OperatorState opState) {
-		return () -> getKeyedBackendSerializationProxy(opState);
-	}
-
 	public static KeyedBackendSerializationProxy<?> getKeyedBackendSerializationProxy(OperatorState opState) {
 		return getKeyedBackendSerializationProxy(firstKeyGroupStateHandle(opState));
 	}
@@ -169,6 +148,20 @@ public class StateMetadataUtils {
 		return proxy.isUsingKeyGroupCompression()
 				? SnappyStreamCompressionDecorator.INSTANCE
 				: UncompressedStreamCompressionDecorator.INSTANCE;
+	}
+
+	@SuppressWarnings("unchecked")
+	public static <T> Optional<TypeSerializer<T>> getSerializer(KeyedBackendSerializationProxy<?> proxy,
+			String stateName) {
+
+		for (StateMetaInfoSnapshot snapshot : proxy.getStateMetaInfoSnapshots()) {
+			if (snapshot.getName().equals(stateName)) {
+				return Optional
+						.of((TypeSerializer<T>) snapshot.getTypeSerializer(CommonSerializerKeys.VALUE_SERIALIZER));
+			}
+		}
+
+		return Optional.empty();
 	}
 
 	public static Map<Integer, String> getStateIdMapping(KeyedBackendSerializationProxy<?> proxy) {
@@ -194,6 +187,13 @@ public class StateMetadataUtils {
 		} catch (IOException e) {
 			throw new RuntimeException(e);
 		}
+	}
+
+	public static Path writeSavepointMetadata(Path newCheckpointBasePath, Savepoint savepoint) throws IOException {
+		Path p = new Path(newCheckpointBasePath, "_metadata");
+		Checkpoints.storeCheckpointMetadata(savepoint,
+				newCheckpointBasePath.getFileSystem().create(p, WriteMode.NO_OVERWRITE));
+		return p;
 	}
 
 }

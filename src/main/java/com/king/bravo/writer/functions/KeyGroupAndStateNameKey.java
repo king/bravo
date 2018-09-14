@@ -20,7 +20,7 @@ package com.king.bravo.writer.functions;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 
-import com.king.bravo.api.KeyedStateRow;
+import com.king.bravo.types.KeyedStateRow;
 
 public class KeyGroupAndStateNameKey
 		implements KeySelector<KeyedStateRow, Tuple2<Integer, String>> {

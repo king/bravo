@@ -32,7 +32,7 @@ import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.state.IncrementalKeyedStateHandle;
 import org.apache.flink.runtime.state.KeyGroupsStateHandle;
 
-import com.king.bravo.api.KeyedStateRow;
+import com.king.bravo.types.KeyedStateRow;
 
 /**
  * InputFormat for reading all {@link KeyedStateRow} for the specified state ids

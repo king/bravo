@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.king.bravo.api;
+package com.king.bravo.types;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;

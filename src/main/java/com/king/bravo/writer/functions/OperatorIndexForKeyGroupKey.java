@@ -19,7 +19,7 @@ package com.king.bravo.writer.functions;
 
 import org.apache.flink.api.java.functions.KeySelector;
 
-import com.king.bravo.api.KeyedStateRow;
+import com.king.bravo.types.KeyedStateRow;
 
 public class OperatorIndexForKeyGroupKey implements KeySelector<KeyedStateRow, Integer> {
 

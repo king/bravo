@@ -35,47 +35,47 @@ import org.apache.flink.core.memory.DataOutputViewStreamWrapper;
 import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
 import org.apache.flink.runtime.state.KeyGroupRangeOffsets;
 import org.apache.flink.runtime.state.KeyGroupsStateHandle;
-import org.apache.flink.runtime.state.KeyedBackendSerializationProxy;
 import org.apache.flink.runtime.state.KeyedStateHandle;
+import org.apache.flink.runtime.state.SnappyStreamCompressionDecorator;
 import org.apache.flink.runtime.state.StreamCompressionDecorator;
+import org.apache.flink.runtime.state.UncompressedStreamCompressionDecorator;
 import org.apache.flink.runtime.state.filesystem.FileStateHandle;
 import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.HashBiMap;
-import com.king.bravo.api.KeyedStateRow;
-import com.king.bravo.utils.StateMetadataUtils;
+import com.king.bravo.types.KeyedStateRow;
 
-public class KeyedStateWriterFunction
-		extends RichGroupReduceFunction<KeyedStateRow, Tuple2<Integer, KeyedStateHandle>> {
+public class RocksDBSavepointWriter extends RichGroupReduceFunction<KeyedStateRow, Tuple2<Integer, KeyedStateHandle>> {
 
 	private static final long serialVersionUID = 1L;
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(KeyedStateWriterFunction.class);
+	private static final Logger LOGGER = LoggerFactory.getLogger(RocksDBSavepointWriter.class);
+
+	private StreamCompressionDecorator keyGroupCompressionDecorator;
+	private Map<String, Integer> stateIdMapping;
 
 	private final int maxParallelism;
 	private final int parallelism;
 	private final Path opStateDir;
-	private final Map<Integer, KeyGroupsStateHandle> handles;
+	private byte[] metaBytes;
 
-	public KeyedStateWriterFunction(int maxParallelism, int parallelism,
-			Map<Integer, KeyGroupsStateHandle> handles,
-			Path opStateDir) {
+	public RocksDBSavepointWriter(int maxParallelism, int parallelism, Map<String, Integer> stateIdMapping,
+			boolean compression, Path opStateDir, byte[] metaBytes) {
+
 		this.maxParallelism = maxParallelism;
 		this.parallelism = parallelism;
-		this.handles = handles;
+		this.stateIdMapping = stateIdMapping;
 		this.opStateDir = opStateDir;
+		this.metaBytes = metaBytes;
+		this.keyGroupCompressionDecorator = compression ? SnappyStreamCompressionDecorator.INSTANCE
+				: UncompressedStreamCompressionDecorator.INSTANCE;
 	}
 
 	@Override
 	public void reduce(Iterable<KeyedStateRow> values,
 			Collector<Tuple2<Integer, KeyedStateHandle>> out)
 			throws Exception {
-
-		KeyedBackendSerializationProxy<?> serializationProxy;
-		StreamCompressionDecorator keyGroupCompressionDecorator = null;
-		Map<String, Integer> stateIdMapping = null;
 
 		Path checkpointFilePath = new Path(opStateDir, String.valueOf(UUID.randomUUID()));
 		FSDataOutputStream checkpointFileStream = null;
@@ -100,11 +100,6 @@ public class KeyedStateWriterFunction
 				nextRow = iterator.next();
 				previousKeyGroup = nextRow.getKeyGroup(maxParallelism);
 				opIndex = nextRow.getOperatorIndex(maxParallelism, parallelism);
-
-				serializationProxy = StateMetadataUtils.getKeyedBackendSerializationProxy(handles.get(opIndex));
-				stateIdMapping = HashBiMap.create(StateMetadataUtils.getStateIdMapping(serializationProxy)).inverse();
-				keyGroupCompressionDecorator = StateMetadataUtils.getCompressionDecorator(serializationProxy);
-
 				previousStateId = stateIdMapping.get(nextRow.getStateName());
 
 				LOGGER.info("Writing to {}", checkpointFilePath);
@@ -113,7 +108,7 @@ public class KeyedStateWriterFunction
 						WriteMode.NO_OVERWRITE);
 
 				// Write rocks keyed state metadata
-				serializationProxy.write(new DataOutputViewStreamWrapper(checkpointFileStream));
+				checkpointFileStream.write(metaBytes);
 
 				keyGroupRangeOffsets = new KeyGroupRangeOffsets(
 						KeyGroupRangeAssignment.computeKeyGroupRangeForOperatorIndex(maxParallelism,

@@ -17,26 +17,21 @@
  */
 package com.king.bravo.writer.functions;
 
-import java.util.List;
-
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.memory.ByteArrayOutputStreamWithPos;
 import org.apache.flink.core.memory.DataOutputViewStreamWrapper;
 import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
-import org.apache.flink.runtime.state.KeyedBackendSerializationProxy;
 import org.apache.flink.runtime.state.VoidNamespace;
 import org.apache.flink.runtime.state.VoidNamespaceSerializer;
-import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
-import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot.CommonSerializerKeys;
 import org.apache.flink.util.InstantiationUtil;
 
-import com.king.bravo.api.KeyedStateRow;
+import com.king.bravo.types.KeyedStateRow;
 import com.king.bravo.utils.RocksDBKeySerializationUtils;
 import com.king.bravo.utils.StateMetadataUtils;
 
-public class MapToKeyedStateRow<K, V> implements MapFunction<Tuple2<K, V>, KeyedStateRow> {
+public class ValueStateToKeyedStateRow<K, V> implements MapFunction<Tuple2<K, V>, KeyedStateRow> {
 
 	private static final long serialVersionUID = 1L;
 	private final int maxParallelism;
@@ -45,29 +40,14 @@ public class MapToKeyedStateRow<K, V> implements MapFunction<Tuple2<K, V>, Keyed
 	private final int keygroupPrefixBytes;
 	private final String stateName;
 
-	@SuppressWarnings("unchecked")
-	public MapToKeyedStateRow(String stateName, KeyedBackendSerializationProxy<?> serializationProxy,
+	public ValueStateToKeyedStateRow(String stateName, TypeSerializer<K> keySerializer,
+			TypeSerializer<V> valueSerializer,
 			int maxParallelism) {
 		this.stateName = stateName;
 		this.maxParallelism = maxParallelism;
 		keygroupPrefixBytes = StateMetadataUtils.getKeyGroupPrefixBytes(maxParallelism);
-		keySerializer = (TypeSerializer<K>) serializationProxy.getKeySerializer();
-
-		List<StateMetaInfoSnapshot> stateMetaInfoSnapshots = serializationProxy
-				.getStateMetaInfoSnapshots();
-
-		for (StateMetaInfoSnapshot snapshot : stateMetaInfoSnapshots) {
-			if (snapshot.getName().equals(stateName)) {
-				if (!(snapshot.getTypeSerializer(
-						CommonSerializerKeys.NAMESPACE_SERIALIZER) instanceof VoidNamespaceSerializer)) {
-					throw new RuntimeException("Only operators states without namespaces are supported at the moment");
-				}
-				valueSerializer = (TypeSerializer<V>) snapshot.getTypeSerializer(CommonSerializerKeys.VALUE_SERIALIZER);
-				return;
-			}
-		}
-
-		throw new RuntimeException("Could not find any keyed state with name " + stateName);
+		this.keySerializer = keySerializer;
+		this.valueSerializer = valueSerializer;
 	}
 
 	@Override

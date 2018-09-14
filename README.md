@@ -10,7 +10,7 @@ Our goal is to cover a few basic features:
  - Converting keyed states to Flink DataSets for processing and analytics
  - Reading/Writing non-keyed operators states
  - Bootstrap keyed states from Flink DataSets and create new valid savepoints
- - Transform existing savepoints by replacing/changing some states
+ - Transform existing savepoints by replacing/changing/creating states
 
 Some example use-cases:
  - Point-in-time state analytics across all operators and keys
@@ -26,9 +26,11 @@ Who am I to tell you what code to run in prod, I have to agree, but please doubl
 
 ## Reading states
 
-### Reading and processing keyed states
+### Reading and processing states
 
-The `KeyedStateReader` provides DataSet input format that understands RocksDB savepoints and can extract state rows from it. The input format creates input splits by operator subtask of the savepoint at the moment but we can change this to split by keygroups directly.
+The `OperatorStateReader` provides DataSet input format that understands RocksDB savepoints and can extract keyed state rows from it. The input format creates input splits by operator subtask of the savepoint at the moment but we can change this to split by keygroups directly.
+
+The reader can also be used to access non-keyed states.
 
 ```java
 // First we start by taking a savepoint of our running job...
@@ -38,26 +40,25 @@ Savepoint savepoint = StateMetadataUtils.loadSavepoint(savepointPath);
 ExecutionEnvironment env = ExecutionEnvironment.getEnvironment();
 
 // We create a KeyedStateReader for accessing the state of the operator CountPerKey
-KeyedStateReader reader = new KeyedStateReader(savepoint, "CountPerKey", env);
+OperatorStateReader reader = new OperatorStateReader(env, savepoint, "CountPerKey");
 
 // The reader now has access to all keyed states of the CountPerKey
 // We are going to read one specific value state named Count
 // The DataSet contains the key-state tuples from our state
-DataSet<Tuple2<Integer, Integer>> countState = reader.readValueStates(
-		ValueStateReader.forStateKVPairs("Count", new TypeHint<Tuple2<Integer, Integer>>() {}));
+DataSet<Tuple2<Integer, Integer>> countState = reader.readKeyedStates(
+		KeyedStateReader.forValueStateKVPairs("Count", new TypeHint<Tuple2<Integer, Integer>>() {}));
 
 // We can now work with the countState dataset and analyize it however we want :)
 ```
 
-### Accessing non-keyed states
+#### Accessing non-keyed states
 
-There is also a convenient reader for non-keyed operator states that will restore that state in-memory. This assumes that the machine that we run the code has enough memory to do this. (This is mostly a safe assumption with the current operator state design)
+The reader assumes that the machine that we run the code has enough memory to restore the non-keyed states locally. (This is mostly a safe assumption with the current operator state design)
 
 ```java
-ManagedOperatorStateReader opStateReader = new ManagedOperatorStateReader(savepoint, "opUid");
 
 // We restore the OperatorStateBackend in memory
-OperatorStateBackend stateBackend = opStateReader.createOperatorStateBackendFromSnapshot(0);
+OperatorStateBackend stateBackend = reader.createOperatorStateBackendFromSnapshot(0);
 
 // Now we can access the state just like from the function
 stateBackend.getListState(...)
@@ -66,9 +67,9 @@ stateBackend.getBroadcastState(...)
 ```
 ## Creating new savepoints
 
-### StateTransformer
+### OperatorStateWriter
 
-As the name suggests the `StateTransformer` class provides utilities to change (replace/transform) the state contained in a savepoint to create a new valid savepoint from where the job can continue processing.
+As the name suggests the `OperatorStateWriter` class provides utilities to change (replace/transform) the state for a single operator. Once we have a new valid operator state we will use some utility methods to create a new Savepoint.
 
 Let's continue our reading example by modifying the state of the all the users, then creating a new valid savepoint.
 ```java
@@ -87,25 +88,27 @@ DataSet<Tuple2<Integer, Integer>> newCounts = countState
 		.map(new SumValues());
 
 // We create a statetransformer that will store new checkpoint state under the newCheckpointDir base directory
-StateTransformer stateBuilder = new StateTransformer(savepoint, newCheckpointDir);
+OperatorStateWriter writer = new OperatorStateWriter(savepoint, "CountPerKey",  newCheckpointDir);
 
-// As a first step we have to serialize our Tuple K-V state with the provided utility
-DataSet<KeyedStateRow> newStateRows = stateBuilder.createKeyedStateRows("CountPerKey", "Count", newCounts);
+writer.addValueState("Count", newCounts);
+writer.addKeyedStateRows()
 
-// In order not to lose the other value states in the "CountPerKey" operator we have to get the untouched rows from the reader
-stateBuilder.replaceKeyedState("CountPerKey", newStateRows.union(reader.getUnparsedStateRows()));
+// In order not to lose the other value states in the "CountPerKey" operator we have to get the unread rows from the reader
+stateBuilder.replaceKeyedState("CountPerKey", newStateRows.union(reader.getAllUnreadKeyedStateRows());
+
+// Once we are happy with all the modifications it's time to write the states to the persistent store
+OperatorState newOpState = operatorStateWriter.writeAll();
 
 // Last thing we do is create a new meta file that points to a valid savepoint
-Path newSavepointPath = stateBuilder.writeSavepointMetadata();
+Savepoint newSavepoint = StateMetadataUtils.createNewSavepoint(savepoint, newOpState);
+StateMetadataUtils.writeSavepointMetadata(newCheckpointDir, newSavepoint);
 ```
 
 We can also use the StateTransformer to transform and replace non-keyed states:
 
 ```java
-stateBuilder.transformManagedOperatorState(String uid, BiConsumer<Integer, OperatorStateBackend> transformer);
+writer.transformNonKeyedState(BiConsumer<Integer, OperatorStateBackend> transformer);
 ```
-
-Modifications made to the state in the consumer are then stored back to the new snapshot.
 
 ## Contact us!
 

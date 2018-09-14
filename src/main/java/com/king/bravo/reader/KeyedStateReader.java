@@ -17,90 +17,150 @@
  */
 package com.king.bravo.reader;
 
-import java.util.Collection;
-import java.util.HashSet;
+import org.apache.commons.lang3.Validate;
+import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.functions.RichFlatMapFunction;
+import org.apache.flink.api.common.typeinfo.TypeHint;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
+import org.apache.flink.api.java.typeutils.TupleTypeInfo;
+import org.apache.flink.configuration.Configuration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import org.apache.flink.api.common.functions.FilterFunction;
-import org.apache.flink.api.java.DataSet;
-import org.apache.flink.api.java.ExecutionEnvironment;
-import org.apache.flink.runtime.checkpoint.OperatorState;
-import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
-
-import com.king.bravo.api.KeyedStateRow;
-import com.king.bravo.reader.inputformat.RocksDBKeyedStateInputFormat;
+import com.king.bravo.types.KeyedStateRow;
 import com.king.bravo.utils.StateMetadataUtils;
-import com.king.bravo.writer.StateTransformer;
 
-/**
- * Convenience object for reading keyed states from a given {@link Savepoint}
- * and operator uid. <br>
- * <br>
- * Typical flow:
- * <ol>
- * <li>Create a KeyedStateReader object for the operator</li>
- * <li>Use readValueStates to read some value states into DataSets</li>
- * <li>Transform these DataSets</li>
- * <li>Use {@link StateTransformer} to create a new state</li>
- * </ol>
- */
-public class KeyedStateReader {
+public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<KeyedStateRow, O>
+		implements ResultTypeQueryable<O> {
 
-	private final DataSet<KeyedStateRow> allRows;
-	private final OperatorState opState;
-	private final HashSet<String> parsedStates = new HashSet<>();
+	private static final Logger LOGGER = LoggerFactory.getLogger(KeyedStateReader.class);
+	private static final long serialVersionUID = 1L;
 
-	private KeyedStateReader(OperatorState opState, DataSet<KeyedStateRow> unparsedState) {
-		this.opState = opState;
-		this.allRows = unparsedState;
+	protected final String stateName;
+
+	protected TypeSerializer<K> keyDeserializer;
+	protected TypeSerializer<V> valueDeserializer;
+
+	private final TypeInformation<K> keyType;
+	private final TypeInformation<V> valueType;
+
+	protected int keygroupPrefixBytes;
+
+	protected boolean initialized = false;
+	protected boolean outputTypesForDeserialization = true;
+
+	private TypeInformation<O> outType;
+
+	protected KeyedStateReader(String stateName, TypeInformation<K> outKeyType, TypeInformation<V> outValueType,
+			TypeInformation<O> outType) {
+		this.stateName = stateName;
+		this.outType = outType;
+		this.valueType = outValueType;
+		this.keyType = outKeyType;
 	}
 
-	private KeyedStateReader(OperatorState opState, ExecutionEnvironment env, FilterFunction<String> stateFilter) {
-		this(opState, env.createInput(new RocksDBKeyedStateInputFormat(opState, stateFilter)));
+	@Override
+	public TypeInformation<O> getProducedType() {
+		if (!initialized) {
+			throw new RuntimeException("Parser not initialized, use it with KeyedStateReader#parseKeyedStateRows");
+		}
+		return outType;
 	}
 
-	private KeyedStateReader(OperatorState opState, ExecutionEnvironment env, HashSet<String> stateNames) {
-		this(opState, env, name -> stateNames.contains(name));
+	@SuppressWarnings("unchecked")
+	public void configure(int maxParallelism, TypeSerializer<?> keySerializer, TypeSerializer<?> valueSerializer) {
+
+		keygroupPrefixBytes = StateMetadataUtils.getKeyGroupPrefixBytes(maxParallelism);
+
+		if (!outputTypesForDeserialization) {
+			if (this.keyDeserializer == null) {
+				this.keyDeserializer = (TypeSerializer<K>) keySerializer;
+			}
+
+			if (this.valueDeserializer == null) {
+				this.valueDeserializer = (TypeSerializer<V>) valueSerializer;
+			}
+		}
+		initialized = true;
 	}
 
-	public KeyedStateReader(Savepoint sp, String uid, ExecutionEnvironment env) {
-		this(StateMetadataUtils.getOperatorState(sp, uid), env, i -> true);
+	public KeyedStateReader<K, V, O> withOutputTypesForDeserialization() {
+		outputTypesForDeserialization = true;
+		keyDeserializer = null;
+		valueDeserializer = null;
+		return this;
 	}
 
-	public KeyedStateReader(Savepoint sp, String uid, ExecutionEnvironment env, Collection<String> stateNames) {
-		this(StateMetadataUtils.getOperatorState(sp, uid), env, new HashSet<>(stateNames));
+	public KeyedStateReader<K, V, O> withKeyDeserializer(TypeSerializer<K> keyDeserializer) {
+		this.keyDeserializer = Validate.notNull(keyDeserializer);
+		return this;
 	}
 
-	public OperatorState getOperatorState() {
-		return opState;
+	public KeyedStateReader<K, V, O> withValueDeserializer(TypeSerializer<V> valueDeserializer) {
+		this.valueDeserializer = Validate.notNull(valueDeserializer);
+		return this;
+	}
+
+	@Override
+	public void open(Configuration c) {
+		ExecutionConfig executionConfig = getRuntimeContext().getExecutionConfig();
+		if (keyDeserializer == null && keyType != null) {
+			keyDeserializer = keyType.createSerializer(executionConfig);
+		}
+		if (valueDeserializer == null && valueType != null) {
+			valueDeserializer = valueType.createSerializer(executionConfig);
+		}
+
+		LOGGER.info(
+				"Initialized KeyedStateRowParser: keyDeserializer: {} valueDeserializer: {} outKeyType: {} outValueType: {}",
+				keyDeserializer, valueDeserializer, keyType, valueType);
 	}
 
 	/**
-	 * Read the value states using the provided reader for further processing
-	 * 
-	 * @return The DataSet containing the deseralized state keys and values
-	 *         depending on the reader
+	 * Create a reader for reading the state key-value pairs for the given value
+	 * state name. The provided type info will be used to deserialize the state
+	 * (allowing possible optimizations)
 	 */
-	public <K, V, O> DataSet<O> readValueStates(ValueStateReader<K, V, O> parser) throws Exception {
-		parser.init(opState);
-		DataSet<O> parsedState = allRows.flatMap(parser);
-		parsedStates.add(parser.getStateName());
-		return parsedState;
+	public static <K, V> KeyedStateReader<K, V, Tuple2<K, V>> forValueStateKVPairs(String stateName,
+			TypeInformation<K> outKeyType,
+			TypeInformation<V> outValueType) {
+		return new ValueStateKVReader<>(stateName, outKeyType, outValueType);
 	}
 
 	/**
-	 * @return DataSet containing all keyed states of the operator
+	 * Create a reader for reading the state key-value pairs for the given value
+	 * state name. The provided type info will be used to deserialize the state
+	 * (allowing possible optimizations)
 	 */
-	public DataSet<KeyedStateRow> getAllStateRows() {
-		return allRows;
+	public static <K, V> KeyedStateReader<K, V, Tuple2<K, V>> forValueStateKVPairs(String stateName,
+			TypeHint<Tuple2<K, V>> tupleTypeHint) {
+		TupleTypeInfo<Tuple2<K, V>> tupleType = (TupleTypeInfo<Tuple2<K, V>>) tupleTypeHint.getTypeInfo();
+		return forValueStateKVPairs(stateName, tupleType.getTypeAt(0), tupleType.getTypeAt(1));
 	}
 
 	/**
-	 * Return all the keyed state rows that were not accessed using a reader. This
-	 * is a convenience method so we can union the untouched part of the state with
-	 * the changed parts before writing them back.
+	 * Create a reader for reading the state values for the given value state name.
+	 * The provided type info will be used to deserialize the state (allowing
+	 * possible optimizations)
 	 */
-	public DataSet<KeyedStateRow> getRemainingStateRows() {
-		HashSet<String> parsed = new HashSet<>(parsedStates);
-		return allRows.filter(row -> !parsed.contains(row.f0));
+	public static <K, V> KeyedStateReader<K, V, V> forValueStateValues(String stateName,
+			TypeInformation<V> outValueType) {
+		return new ValueStateValueReader<>(stateName, outValueType);
+	}
+
+	/**
+	 * Create a reader for reading the state values for the given value state name.
+	 * The provided type info will be used to deserialize the state (allowing
+	 * possible optimizations)
+	 */
+	public static <K, V> KeyedStateReader<K, V, V> forValueStateValues(String stateName, TypeHint<V> outValueTypeHint) {
+		return forValueStateValues(stateName, outValueTypeHint.getTypeInfo());
+	}
+
+	public String getStateName() {
+		return stateName;
 	}
 }

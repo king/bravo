@@ -28,6 +28,7 @@ import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.common.time.Deadline;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.common.typeinfo.TypeHint;
+import org.apache.flink.api.common.typeutils.base.IntSerializer;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -36,6 +37,7 @@ import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.contrib.streaming.state.RocksDBStateBackend;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.jobgraph.JobGraph;
@@ -53,11 +55,10 @@ import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.king.bravo.api.KeyedStateRow;
 import com.king.bravo.reader.KeyedStateReader;
-import com.king.bravo.reader.ValueStateReader;
+import com.king.bravo.reader.OperatorStateReader;
 import com.king.bravo.utils.StateMetadataUtils;
-import com.king.bravo.writer.StateTransformer;
+import com.king.bravo.writer.OperatorStateWriter;
 
 public class SavepointTransformationTest extends TestLogger {
 
@@ -99,10 +100,10 @@ public class SavepointTransformationTest extends TestLogger {
 
 		ExecutionEnvironment environment = ExecutionEnvironment.createLocalEnvironment();
 
-		KeyedStateReader reader = new KeyedStateReader(savepoint, "hello", environment);
+		OperatorStateReader reader = new OperatorStateReader(environment, savepoint, "hello");
 
-		DataSet<Tuple2<Integer, Integer>> countState = reader.readValueStates(
-				ValueStateReader.forStateKVPairs("Count", new TypeHint<Tuple2<Integer, Integer>>() {}));
+		DataSet<Tuple2<Integer, Integer>> countState = reader.readKeyedStates(
+				KeyedStateReader.forValueStateKVPairs("Count", new TypeHint<Tuple2<Integer, Integer>>() {}));
 
 		DataSet<Tuple2<Integer, Integer>> newCountsToAdd = environment
 				.fromElements(Tuple2.of(0, 100), Tuple2.of(3, 1000), Tuple2.of(1, 100), Tuple2.of(2, 1000));
@@ -110,13 +111,19 @@ public class SavepointTransformationTest extends TestLogger {
 		DataSet<Tuple2<Integer, Integer>> newStates = countState.join(newCountsToAdd).where(0).equalTo(0)
 				.map(new SumValues());
 
-		StateTransformer stateBuilder = new StateTransformer(savepoint, new Path(cpDir, "new"));
-		DataSet<KeyedStateRow> newStateRows = stateBuilder.createKeyedStateRows("hello", "Count", newStates);
+		Path newCheckpointBasePath = new Path(cpDir, "new");
+		OperatorStateWriter operatorStateWriter = new OperatorStateWriter(savepoint, "hello", newCheckpointBasePath);
 
-		stateBuilder.replaceKeyedStates("hello", newStateRows.union(reader.getRemainingStateRows()));
-		stateBuilder.writeSavepointMetadata();
+		operatorStateWriter.addValueState("Count",
+				countState.map(t -> Tuple2.of(t.f0, t.f1 * 2)).returns(new TypeHint<Tuple2<Integer, Integer>>() {}));
 
-		return stateBuilder.getNewCheckpointPath();
+		operatorStateWriter.createNewValueState("Count2", newStates, IntSerializer.INSTANCE);
+		operatorStateWriter.addKeyedStateRows(reader.getAllUnreadKeyedStateRows());
+
+		OperatorState newOpState = operatorStateWriter.writeAll();
+		Savepoint newSavepoint = StateMetadataUtils.createNewSavepoint(savepoint, newOpState);
+		StateMetadataUtils.writeSavepointMetadata(newCheckpointBasePath, newSavepoint);
+		return newCheckpointBasePath;
 	}
 
 	private MiniClusterResourceFactory createCluster(final int numTaskManagers, final int numSlotsPerTaskManager,
@@ -156,7 +163,7 @@ public class SavepointTransformationTest extends TestLogger {
 	private void restoreJobAndVerifyState(String savepointPath, MiniClusterResourceFactory clusterFactory,
 			int parallelism, String cpDir) throws Exception {
 
-		final JobGraph jobGraph = createJobGraph(parallelism, cpDir);
+		final JobGraph jobGraph = createJobGraph2(parallelism, cpDir);
 		jobGraph.setSavepointRestoreSettings(SavepointRestoreSettings.forPath(cpDir));
 		final JobID jobId = jobGraph.getJobID();
 		MiniClusterResource cluster = clusterFactory.get();
@@ -195,6 +202,25 @@ public class SavepointTransformationTest extends TestLogger {
 				.addSource(new InfiniteTestSource())
 				.keyBy(i -> i)
 				.map(new Counter())
+				.uid("hello")
+				.addSink(new SinkFunction<Integer>() {});
+
+		return env.getStreamGraph().getJobGraph();
+	}
+
+	private JobGraph createJobGraph2(int parallelism, String cpDir) throws IOException {
+
+		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setParallelism(parallelism);
+		env.disableOperatorChaining();
+		env.getConfig().setRestartStrategy(RestartStrategies.fixedDelayRestart(0, 1000));
+		env.getConfig().disableSysoutLogging();
+		env.setStateBackend(new RocksDBStateBackend(cpDir));
+
+		env
+				.addSource(new InfiniteTestSource())
+				.keyBy(i -> i)
+				.map(new Counter2())
 				.uid("hello")
 				.addSink(new SinkFunction<Integer>() {});
 
