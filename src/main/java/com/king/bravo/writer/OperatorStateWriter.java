@@ -39,8 +39,14 @@ import com.king.bravo.utils.StateMetadataUtils;
 import com.king.bravo.writer.functions.KeyGroupAndStateNameKey;
 import com.king.bravo.writer.functions.OperatorIndexForKeyGroupKey;
 import com.king.bravo.writer.functions.RocksDBSavepointWriter;
+import com.king.bravo.writer.functions.RowFilter;
 import com.king.bravo.writer.functions.ValueStateToKeyedStateRow;
 
+/**
+ * Utility for creating new OperatorStates based on old checkpointed data and
+ * new state from datasets. This can be used to modify add and remove keyed
+ * states as well as to modify non-keyed states.
+ */
 public class OperatorStateWriter {
 
 	private OperatorState baseOpState;
@@ -66,10 +72,50 @@ public class OperatorStateWriter {
 		proxy = StateMetadataUtils.getKeyedBackendSerializationProxy(baseOpState);
 	}
 
+	/**
+	 * Add a Dataset of {@link KeyedStateRow}s to the state of the operator, this is
+	 * mostly used to migrate existing states of the operator to the new operator
+	 * state without modifications.
+	 * <p>
+	 * This can be used to add all different kinds of keyed states: value, list, map
+	 * 
+	 * @param rows
+	 *            State rows to be added
+	 */
 	public void addKeyedStateRows(DataSet<KeyedStateRow> rows) {
 		allRows = allRows == null ? rows : allRows.union(rows);
 	}
 
+	/**
+	 * Removes the state metadata and rows for the given statename.
+	 * 
+	 * @param stateName
+	 *            Name of the state to be deleted
+	 */
+	public void deleteKeyedState(String stateName) {
+		metaSnapshots.remove(stateName);
+		updateProxy();
+	}
+
+	private void updateProxy() {
+		proxy = new KeyedBackendSerializationProxy<>(proxy.getKeySerializer(), new ArrayList<>(metaSnapshots.values()),
+				proxy.isUsingKeyGroupCompression());
+	}
+
+	/**
+	 * Adds a dataset of K-V pairs to the keyed state of the operator. This
+	 * operation assumes that a state with the same name is already defined and the
+	 * metadata is reused.
+	 * <p>
+	 * To define new states see
+	 * {@link #createNewValueState(String, DataSet, TypeSerializer)}
+	 * <p>
+	 * Keep in mind that any state rows for the same name already added (through
+	 * {@link #addKeyedStateRows(DataSet)}) will not be overwritten.
+	 * 
+	 * @param stateName
+	 * @param newState
+	 */
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	public <K, V> void addValueState(String stateName, DataSet<Tuple2<K, V>> newState) {
 		addKeyedStateRows(newState
@@ -81,6 +127,18 @@ public class OperatorStateWriter {
 						baseOpState.getMaxParallelism())));
 	}
 
+	/**
+	 * Defines/redefines a value state with the given name and type. This can be
+	 * used to create new states of an operator or change the type of an already
+	 * existing state.
+	 * <p>
+	 * When redefining a pre-existing state make sure you haven't added that as
+	 * keyed state rows before.
+	 * 
+	 * @param stateName
+	 * @param newState
+	 * @param valueSerializer
+	 */
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	public <K, V> void createNewValueState(String stateName, DataSet<Tuple2<K, V>> newState,
 			TypeSerializer<V> valueSerializer) {
@@ -88,9 +146,7 @@ public class OperatorStateWriter {
 		metaSnapshots.put(stateName, new RegisteredKeyValueStateBackendMetaInfo<>(StateDescriptor.Type.VALUE, stateName,
 				VoidNamespaceSerializer.INSTANCE, valueSerializer).snapshot());
 
-		proxy = new KeyedBackendSerializationProxy<>(proxy.getKeySerializer(), new ArrayList<>(metaSnapshots.values()),
-				proxy.isUsingKeyGroupCompression());
-
+		updateProxy();
 		addKeyedStateRows(newState
 				.map(new ValueStateToKeyedStateRow<K, V>(stateName,
 						(TypeSerializer<K>) (TypeSerializer) proxy.getKeySerializer(),
@@ -98,6 +154,12 @@ public class OperatorStateWriter {
 						baseOpState.getMaxParallelism())));
 	}
 
+	/**
+	 * Triggers the batch processing operations to write the operator state data to
+	 * persistent storage and create the metadata object
+	 * 
+	 * @return {@link OperatorState} metadata pointing to the newly written state
+	 */
 	public OperatorState writeAll() throws Exception {
 		int maxParallelism = baseOpState.getMaxParallelism();
 		int parallelism = baseOpState.getParallelism();
@@ -107,6 +169,7 @@ public class OperatorStateWriter {
 		proxy.write(bow);
 
 		DataSet<Tuple2<Integer, KeyedStateHandle>> handles = allRows
+				.filter(new RowFilter(metaSnapshots.keySet()))
 				.groupBy(new OperatorIndexForKeyGroupKey(maxParallelism, parallelism))
 				.sortGroup(new KeyGroupAndStateNameKey(maxParallelism), Order.ASCENDING)
 				.reduceGroup(new RocksDBSavepointWriter(maxParallelism, parallelism,
@@ -169,6 +232,18 @@ public class OperatorStateWriter {
 		}
 	}
 
+	/**
+	 * Transform the non-keyed state of the operator by applying a function to the
+	 * non-keyed state of each operator instance. Any update made to the
+	 * {@link OperatorStateBackend} will be stored back as the new state of the
+	 * operator.
+	 * <p>
+	 * The transformation will be executed sequentially, in-memory on the client.
+	 * 
+	 * @param transformer
+	 *            Consumer to be applied on the {@link OperatorStateBackend}
+	 * @throws Exception
+	 */
 	public <K, V> void transformNonKeyedState(BiConsumer<Integer, OperatorStateBackend> transformer) throws Exception {
 		this.transformer = transformer;
 	}

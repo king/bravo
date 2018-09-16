@@ -42,18 +42,22 @@ import org.apache.flink.shaded.curator.org.apache.curator.shaded.com.google.comm
 import com.king.bravo.reader.inputformat.RocksDBKeyedStateInputFormat;
 import com.king.bravo.types.KeyedStateRow;
 import com.king.bravo.utils.StateMetadataUtils;
+import com.king.bravo.writer.OperatorStateWriter;
 
+/**
+ * Utility for reading the states stored in a Flink operator into DataSets.
+ * There are methods for reading both keyed and non-keyed states.
+ *
+ */
 public class OperatorStateReader {
 
-	private OperatorState opState;
+	private final OperatorState opState;
+	private final FilterFunction<String> keyedStateFilter;
+	private final ExecutionEnvironment env;
+
+	private final HashSet<String> readStates = new HashSet<>();
 
 	private DataSet<KeyedStateRow> allKeyedStateRows;
-
-	private FilterFunction<String> keyedStateFilter;
-
-	private ExecutionEnvironment env;
-
-	private final HashSet<String> parsedStates = new HashSet<>();
 
 	private OperatorStateReader(ExecutionEnvironment env, OperatorState opState,
 			FilterFunction<String> keyedStateFilter) {
@@ -84,10 +88,9 @@ public class OperatorStateReader {
 	}
 
 	/**
-	 * Read the states using the provided reader for further processing
+	 * Read keyed states using the provided reader for further processing
 	 * 
-	 * @return The DataSet containing the deseralized state keys and values
-	 *         depending on the reader
+	 * @return The DataSet containing the deseralized state elements
 	 */
 	public <K, V, O> DataSet<O> readKeyedStates(KeyedStateReader<K, V, O> reader) throws Exception {
 		readKeyedStates();
@@ -96,12 +99,13 @@ public class OperatorStateReader {
 				StateMetadataUtils.getSerializer(proxy, reader.getStateName())
 						.orElseThrow(() -> new IllegalArgumentException("Cannot find state " + reader.getStateName())));
 		DataSet<O> parsedState = allKeyedStateRows.flatMap(reader);
-		parsedStates.add(reader.getStateName());
+		readStates.add(reader.getStateName());
 		return parsedState;
 	}
 
 	/**
-	 * @return DataSet containing all keyed states of the operator
+	 * @return DataSet containing all keyed states of the operator in a serialized
+	 *         form
 	 */
 	public DataSet<KeyedStateRow> getAllKeyedStateRows() {
 		readKeyedStates();
@@ -111,14 +115,21 @@ public class OperatorStateReader {
 	/**
 	 * Return all the keyed state rows that were not accessed using a reader. This
 	 * is a convenience method so we can union the untouched part of the state with
-	 * the changed parts before writing them back.
+	 * the changed parts before writing them back using the
+	 * {@link OperatorStateWriter}.
 	 */
 	public DataSet<KeyedStateRow> getAllUnreadKeyedStateRows() {
 		readKeyedStates();
-		HashSet<String> parsed = new HashSet<>(parsedStates);
+		HashSet<String> parsed = new HashSet<>(readStates);
 		return allKeyedStateRows.filter(row -> !parsed.contains(row.f0));
 	}
 
+	/**
+	 * Get the serialized keyed state rows for the specified state names
+	 * 
+	 * @param stateNames
+	 * @return The dataset of the rows
+	 */
 	public DataSet<KeyedStateRow> getKeyedStateRows(Set<String> stateNames) {
 		readKeyedStates();
 		HashSet<String> filtered = new HashSet<>(stateNames);

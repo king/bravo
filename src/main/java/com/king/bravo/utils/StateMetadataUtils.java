@@ -122,10 +122,30 @@ public class StateMetadataUtils {
 		return maxParallelism > (Byte.MAX_VALUE + 1) ? 2 : 1;
 	}
 
+	/**
+	 * Create a new {@link Savepoint} by replacing certain {@link OperatorState}s of
+	 * an old {@link Savepoint}
+	 * 
+	 * @param oldSavepoint
+	 *            {@link Savepoint} to base the new state on
+	 * @param statesToReplace
+	 *            States that will be replaced, all else will be kept
+	 * @return A new valid {@link Savepoint} metadata object.
+	 */
 	public static Savepoint createNewSavepoint(Savepoint oldSavepoint, OperatorState... statesToReplace) {
 		return createNewSavepoint(oldSavepoint, Arrays.asList(statesToReplace));
 	}
 
+	/**
+	 * Create a new {@link Savepoint} by replacing certain {@link OperatorState}s of
+	 * an old {@link Savepoint}
+	 * 
+	 * @param oldSavepoint
+	 *            {@link Savepoint} to base the new state on
+	 * @param statesToReplace
+	 *            States that will be replaced, all else will be kept
+	 * @return A new valid {@link Savepoint} metadata object.
+	 */
 	public static Savepoint createNewSavepoint(Savepoint oldSavepoint, Collection<OperatorState> statesToReplace) {
 
 		Map<OperatorID, OperatorState> newStates = oldSavepoint.getOperatorStates().stream()
