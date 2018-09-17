@@ -89,14 +89,8 @@ public class ValueStateTransformationTest extends BravoTestPipeline {
 				.keyBy(i -> i)
 				.map(new StatefulCounter())
 				.uid("hello")
-				.map(new MapFunction<Tuple2<Integer, Integer>, String>() {
-					private static final long serialVersionUID = 1L;
-
-					@Override
-					public String map(Tuple2<Integer, Integer> t) throws Exception {
-						return t.toString();
-					}
-				});
+				.map(Tuple2::toString)
+				.returns(String.class);
 	}
 
 	public DataStream<String> restoreTestPipeline(DataStream<String> source) {
@@ -105,14 +99,8 @@ public class ValueStateTransformationTest extends BravoTestPipeline {
 				.returns(Integer.class)
 				.keyBy(i -> i)
 				.map(new StatefulCounter2())
-				.uid("hello").map(new MapFunction<Tuple3<Integer, Integer, Integer>, String>() {
-					private static final long serialVersionUID = 1L;
-
-					@Override
-					public String map(Tuple3<Integer, Integer, Integer> t) throws Exception {
-						return t.toString();
-					}
-				});
+				.uid("hello").map(Tuple3::toString)
+				.returns(String.class);
 	}
 
 	public static class StatefulCounter extends RichMapFunction<Integer, Tuple2<Integer, Integer>> {

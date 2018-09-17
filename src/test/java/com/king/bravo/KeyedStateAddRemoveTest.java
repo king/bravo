@@ -87,14 +87,8 @@ public class KeyedStateAddRemoveTest extends BravoTestPipeline {
 				.keyBy(i -> i)
 				.map(new StatelessMap())
 				.uid("counter")
-				.map(new MapFunction<Tuple2<Integer, Integer>, String>() {
-					private static final long serialVersionUID = 1L;
-
-					@Override
-					public String map(Tuple2<Integer, Integer> t) throws Exception {
-						return t.toString();
-					}
-				});
+				.map(Tuple2::toString)
+				.returns(String.class);
 	}
 
 	public DataStream<String> restoreTestPipeline(DataStream<String> source) {
@@ -106,14 +100,9 @@ public class KeyedStateAddRemoveTest extends BravoTestPipeline {
 				.uid("filter")
 				.keyBy(i -> i)
 				.map(new StatefulCounter())
-				.uid("counter").map(new MapFunction<Tuple2<Integer, Integer>, String>() {
-					private static final long serialVersionUID = 1L;
-
-					@Override
-					public String map(Tuple2<Integer, Integer> t) throws Exception {
-						return t.toString();
-					}
-				});
+				.uid("counter")
+				.map(Tuple2::toString)
+				.returns(String.class);
 	}
 
 	public static class StatefulFilter extends RichFilterFunction<Integer> {
