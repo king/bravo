@@ -94,7 +94,8 @@ public class OperatorStateReader {
 	 */
 	public <K, V, O> DataSet<O> readKeyedStates(KeyedStateReader<K, V, O> reader) throws Exception {
 		readKeyedStates();
-		KeyedBackendSerializationProxy<?> proxy = StateMetadataUtils.getKeyedBackendSerializationProxy(opState);
+		KeyedBackendSerializationProxy<?> proxy = StateMetadataUtils.getKeyedBackendSerializationProxy(opState)
+				.orElseThrow(() -> new IllegalStateException("Cannot read state of a stateless operator."));
 		reader.configure(opState.getMaxParallelism(), proxy.getKeySerializer(),
 				StateMetadataUtils.getSerializer(proxy, reader.getStateName())
 						.orElseThrow(() -> new IllegalArgumentException("Cannot find state " + reader.getStateName())));

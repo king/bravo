@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.function.Function;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.client.program.ClusterClient;
@@ -56,22 +57,26 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 		actions.clear();
 	}
 
-	public List<String> runTestPipeline() throws Exception {
-		return runTestPipeline(4, null);
+	public List<String> runTestPipeline(Function<DataStream<String>, DataStream<String>> pipelinerBuilder)
+			throws Exception {
+		return runTestPipeline(4, null, pipelinerBuilder);
 	}
 
-	public List<String> restoreTestPipelineFromSavepoint(String savepoint) throws Exception {
-		return runTestPipeline(4, savepoint);
+	public List<String> restoreTestPipelineFromSavepoint(String savepoint,
+			Function<DataStream<String>, DataStream<String>> pipelinerBuilder) throws Exception {
+		return runTestPipeline(4, savepoint, pipelinerBuilder);
 	}
 
-	public List<String> restoreTestPipelineFromLastSavepoint() throws Exception {
+	public List<String> restoreTestPipelineFromLastSavepoint(
+			Function<DataStream<String>, DataStream<String>> pipelinerBuilder) throws Exception {
 		if (TriggerSavepoint.lastSavepointPath == null) {
 			throw new RuntimeException("triggerSavepoint must be called to obtain a valid savepoint");
 		}
-		return restoreTestPipelineFromSavepoint(TriggerSavepoint.lastSavepointPath);
+		return restoreTestPipelineFromSavepoint(TriggerSavepoint.lastSavepointPath, pipelinerBuilder);
 	}
 
-	private StreamExecutionEnvironment createJobGraph(int parallelism, boolean savepoint) throws Exception {
+	private StreamExecutionEnvironment createJobGraph(int parallelism,
+			Function<DataStream<String>, DataStream<String>> pipelinerBuilder) throws Exception {
 		final Path checkpointDir = getCheckpointDir();
 		final Path savepointRootDir = getSavepointDir();
 
@@ -93,22 +98,19 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 				.name("TestSource")
 				.setParallelism(1);
 
-		(savepoint ? restoreTestPipeline(sourceData) : constructTestPipeline(sourceData))
+		pipelinerBuilder.apply(sourceData)
 				.addSink(new CollectingSink()).name("Output").uid("Output")
 				.setParallelism(1);
 
 		return env;
 	}
 
-	public abstract DataStream<String> constructTestPipeline(DataStream<String> source);
-
-	public abstract DataStream<String> restoreTestPipeline(DataStream<String> source);
-
-	private List<String> runTestPipeline(int parallelism, String savepoint) throws Exception {
+	private List<String> runTestPipeline(int parallelism, String savepoint,
+			Function<DataStream<String>, DataStream<String>> pipelinerBuilder) throws Exception {
 
 		cancelJob();
 
-		jobGraph = createJobGraph(parallelism, savepoint != null).getStreamGraph().getJobGraph();
+		jobGraph = createJobGraph(parallelism, pipelinerBuilder).getStreamGraph().getJobGraph();
 		if (savepoint != null) {
 			jobGraph.setSavepointRestoreSettings(SavepointRestoreSettings.forPath(savepoint));
 		}

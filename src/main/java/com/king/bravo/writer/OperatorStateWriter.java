@@ -7,7 +7,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.BiConsumer;
-import java.util.stream.Collectors;
 
 import org.apache.flink.api.common.operators.Order;
 import org.apache.flink.api.common.state.StateDescriptor;
@@ -57,6 +56,8 @@ public class OperatorStateWriter {
 	private Map<String, StateMetaInfoSnapshot> metaSnapshots;
 	private KeyedBackendSerializationProxy<?> proxy;
 
+	private TypeSerializer<?> keySerializer = null;
+
 	public OperatorStateWriter(Savepoint sp, String uid, Path newCheckpointBasePath) {
 		this(sp.getCheckpointId(), StateMetadataUtils.getOperatorState(sp, uid), newCheckpointBasePath);
 	}
@@ -66,10 +67,22 @@ public class OperatorStateWriter {
 		this.newCheckpointBasePath = newCheckpointBasePath;
 		this.checkpointId = checkpointId;
 
-		proxy = StateMetadataUtils.getKeyedBackendSerializationProxy(baseOpState);
+		proxy = StateMetadataUtils.getKeyedBackendSerializationProxy(baseOpState).orElse(null);
 		metaSnapshots = new HashMap<>();
-		proxy.getStateMetaInfoSnapshots().forEach(ms -> metaSnapshots.put(ms.getName(), ms));
-		proxy = StateMetadataUtils.getKeyedBackendSerializationProxy(baseOpState);
+		if (proxy != null) {
+			proxy.getStateMetaInfoSnapshots().forEach(ms -> metaSnapshots.put(ms.getName(), ms));
+		}
+	}
+
+	/**
+	 * Defines the keyserializer for this operator. This method can be used when
+	 * adding state to a previously stateless operator where the keyserializer is
+	 * not available from the state.
+	 * 
+	 * @param keySerializer
+	 */
+	public void setKeySerializer(TypeSerializer<?> keySerializer) {
+		this.keySerializer = keySerializer;
 	}
 
 	/**
@@ -94,12 +107,23 @@ public class OperatorStateWriter {
 	 */
 	public void deleteKeyedState(String stateName) {
 		metaSnapshots.remove(stateName);
-		updateProxy();
 	}
 
 	private void updateProxy() {
-		proxy = new KeyedBackendSerializationProxy<>(proxy.getKeySerializer(), new ArrayList<>(metaSnapshots.values()),
-				proxy.isUsingKeyGroupCompression());
+		if (proxy == null && keySerializer == null) {
+			throw new IllegalStateException(
+					"KeySerializer must be defined when adding state to a previously stateless operator. Use writer.setKeySerializer(...)");
+		}
+
+		proxy = new KeyedBackendSerializationProxy<>(
+				getKeySerializer(),
+				new ArrayList<>(metaSnapshots.values()),
+				proxy != null ? proxy.isUsingKeyGroupCompression() : true);
+	}
+
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	private <T> TypeSerializer<T> getKeySerializer() {
+		return proxy != null ? (TypeSerializer) proxy.getKeySerializer() : (TypeSerializer) keySerializer;
 	}
 
 	/**
@@ -120,7 +144,7 @@ public class OperatorStateWriter {
 	public <K, V> void addValueState(String stateName, DataSet<Tuple2<K, V>> newState) {
 		addKeyedStateRows(newState
 				.map(new ValueStateToKeyedStateRow<K, V>(stateName,
-						(TypeSerializer<K>) (TypeSerializer) proxy.getKeySerializer(),
+						getKeySerializer(),
 						(TypeSerializer<V>) (TypeSerializer) StateMetadataUtils.getSerializer(proxy, stateName)
 								.orElseThrow(
 										() -> new IllegalArgumentException("Cannot find state " + stateName)),
@@ -139,7 +163,6 @@ public class OperatorStateWriter {
 	 * @param newState
 	 * @param valueSerializer
 	 */
-	@SuppressWarnings({ "rawtypes", "unchecked" })
 	public <K, V> void createNewValueState(String stateName, DataSet<Tuple2<K, V>> newState,
 			TypeSerializer<V> valueSerializer) {
 
@@ -149,7 +172,7 @@ public class OperatorStateWriter {
 		updateProxy();
 		addKeyedStateRows(newState
 				.map(new ValueStateToKeyedStateRow<K, V>(stateName,
-						(TypeSerializer<K>) (TypeSerializer) proxy.getKeySerializer(),
+						getKeySerializer(),
 						valueSerializer,
 						baseOpState.getMaxParallelism())));
 	}
@@ -165,19 +188,22 @@ public class OperatorStateWriter {
 		int parallelism = baseOpState.getParallelism();
 		Path outDir = makeOutputDir();
 
-		ByteArrayDataOutputView bow = new ByteArrayDataOutputView();
-		proxy.write(bow);
+		Map<Integer, KeyedStateHandle> handleMap = new HashMap<>();
+		if (allRows != null && !metaSnapshots.isEmpty()) {
+			updateProxy();
+			ByteArrayDataOutputView bow = new ByteArrayDataOutputView();
+			proxy.write(bow);
 
-		DataSet<Tuple2<Integer, KeyedStateHandle>> handles = allRows
-				.filter(new RowFilter(metaSnapshots.keySet()))
-				.groupBy(new OperatorIndexForKeyGroupKey(maxParallelism, parallelism))
-				.sortGroup(new KeyGroupAndStateNameKey(maxParallelism), Order.ASCENDING)
-				.reduceGroup(new RocksDBSavepointWriter(maxParallelism, parallelism,
-						HashBiMap.create(StateMetadataUtils.getStateIdMapping(proxy)).inverse(),
-						proxy.isUsingKeyGroupCompression(), outDir, bow.toByteArray()));
+			DataSet<Tuple2<Integer, KeyedStateHandle>> handles = allRows
+					.filter(new RowFilter(metaSnapshots.keySet()))
+					.groupBy(new OperatorIndexForKeyGroupKey(maxParallelism, parallelism))
+					.sortGroup(new KeyGroupAndStateNameKey(maxParallelism), Order.ASCENDING)
+					.reduceGroup(new RocksDBSavepointWriter(maxParallelism, parallelism,
+							HashBiMap.create(StateMetadataUtils.getStateIdMapping(proxy)).inverse(),
+							proxy.isUsingKeyGroupCompression(), outDir, bow.toByteArray()));
 
-		Map<Integer, KeyedStateHandle> handleMap = handles.collect().stream()
-				.collect(Collectors.toMap(t -> t.f0, t -> t.f1));
+			handles.collect().stream().forEach(t -> handleMap.put(t.f0, t.f1));
+		}
 
 		// We construct a new operatorstate with the collected handles
 		OperatorState newOperatorState = new OperatorState(baseOpState.getOperatorID(), parallelism, maxParallelism);

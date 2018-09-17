@@ -22,7 +22,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -38,11 +38,11 @@ import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
 import org.apache.flink.runtime.checkpoint.savepoint.SavepointV2;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.state.KeyedBackendSerializationProxy;
+import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.SnappyStreamCompressionDecorator;
 import org.apache.flink.runtime.state.StreamCompressionDecorator;
 import org.apache.flink.runtime.state.StreamStateHandle;
 import org.apache.flink.runtime.state.UncompressedStreamCompressionDecorator;
-import org.apache.flink.runtime.state.VoidNamespaceSerializer;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot.CommonSerializerKeys;
 
@@ -68,54 +68,6 @@ public class StateMetadataUtils {
 				.filter(os -> os.getOperatorID().equals(opId))
 				.findAny()
 				.orElseThrow(() -> new RuntimeException("No operator state with id " + opId.toString()));
-	}
-
-	public static int getKeyedStateId(OperatorState state, String stateName) {
-		int stateId = 0;
-		List<StateMetaInfoSnapshot> stateMetaInfoSnapshots = StateMetadataUtils
-				.getKeyedBackendSerializationProxy(state)
-				.getStateMetaInfoSnapshots();
-
-		for (StateMetaInfoSnapshot snapshot : stateMetaInfoSnapshots) {
-			if (snapshot.getName().equals(stateName)) {
-				if (!(snapshot.getTypeSerializer(
-						CommonSerializerKeys.NAMESPACE_SERIALIZER) instanceof VoidNamespaceSerializer)) {
-					throw new RuntimeException("Only operators states without namespaces are supported at the moment");
-				}
-				return stateId;
-			}
-			stateId++;
-		}
-
-		throw new RuntimeException("Could not find any keyed state with name " + stateName);
-	}
-
-	public static Map<String, Integer> getKeyedStateIds(OperatorState state, Collection<String> stateNames) {
-		int stateId = 0;
-		List<StateMetaInfoSnapshot> stateMetaInfoSnapshots = StateMetadataUtils
-				.getKeyedBackendSerializationProxy(state)
-				.getStateMetaInfoSnapshots();
-
-		Map<String, Integer> out = new HashMap<>();
-
-		for (StateMetaInfoSnapshot snapshot : stateMetaInfoSnapshots) {
-			if (stateNames.contains(snapshot.getName())) {
-				if (!(snapshot.getTypeSerializer(
-						CommonSerializerKeys.NAMESPACE_SERIALIZER) instanceof VoidNamespaceSerializer)) {
-					throw new RuntimeException("Only operators states without namespaces are supported at the moment");
-				}
-				out.put(snapshot.getName(), stateId);
-			}
-			stateId++;
-		}
-
-		stateNames.forEach(s -> {
-			if (!out.containsKey(s)) {
-				throw new RuntimeException("Could not find any keyed state with name " + s);
-			}
-		});
-
-		return out;
 	}
 
 	public static int getKeyGroupPrefixBytes(int maxParallelism) {
@@ -156,12 +108,17 @@ public class StateMetadataUtils {
 		return new SavepointV2(oldSavepoint.getCheckpointId(), newStates.values(), oldSavepoint.getMasterStates());
 	}
 
-	public static KeyedBackendSerializationProxy<?> getKeyedBackendSerializationProxy(OperatorState opState) {
-		return getKeyedBackendSerializationProxy(firstKeyGroupStateHandle(opState));
+	public static Optional<KeyedBackendSerializationProxy<?>> getKeyedBackendSerializationProxy(OperatorState opState) {
+		return firstKeyGroupStateHandle(opState).map(h -> getKeyedBackendSerializationProxy(h));
 	}
 
-	private static StreamStateHandle firstKeyGroupStateHandle(OperatorState opState) {
-		return (StreamStateHandle) opState.getState(0).getManagedKeyedState().iterator().next();
+	private static Optional<StreamStateHandle> firstKeyGroupStateHandle(OperatorState opState) {
+		Iterator<KeyedStateHandle> it = opState.getState(0).getManagedKeyedState().iterator();
+		if (it.hasNext()) {
+			return Optional.of((StreamStateHandle) it.next());
+		} else {
+			return Optional.empty();
+		}
 	}
 
 	public static StreamCompressionDecorator getCompressionDecorator(KeyedBackendSerializationProxy<?> proxy) {
