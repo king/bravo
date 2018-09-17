@@ -5,9 +5,10 @@ import java.util.Optional;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.configuration.Configuration;
 
-public class Counter2 extends RichMapFunction<Integer, Integer> {
+public class Counter2 extends RichMapFunction<Integer, Tuple3<Integer, Integer, Integer>> {
 
 	private static final long serialVersionUID = 7317800376639115920L;
 	private ValueState<Integer> count;
@@ -20,11 +21,9 @@ public class Counter2 extends RichMapFunction<Integer, Integer> {
 	}
 
 	@Override
-	public Integer map(Integer value) throws Exception {
+	public Tuple3<Integer, Integer, Integer> map(Integer value) throws Exception {
 		count.update(Optional.ofNullable(count.value()).orElse(0) + 1);
 		count2.update(Optional.ofNullable(count2.value()).orElse(0) + 1);
-		System.err.println("C1: " + value + " - " + count.value());
-		System.err.println("C2: " + value + " - " + count2.value());
-		return value;
+		return Tuple3.of(value, count.value(), count2.value());
 	}
 }
