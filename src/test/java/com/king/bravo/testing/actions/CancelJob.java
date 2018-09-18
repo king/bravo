@@ -24,6 +24,6 @@ public class CancelJob extends OneTimePipelineAction {
 
 	@Override
 	public void onceExecuteClusterAction(ClusterClient<?> client, JobID id) throws Exception {
-		client.cancelWithSavepoint(id, null);
+		client.cancel(id);
 	}
 }

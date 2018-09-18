@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -37,6 +36,7 @@ import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
 import org.apache.flink.runtime.checkpoint.savepoint.SavepointV2;
 import org.apache.flink.runtime.jobgraph.OperatorID;
+import org.apache.flink.runtime.state.IncrementalKeyedStateHandle;
 import org.apache.flink.runtime.state.KeyedBackendSerializationProxy;
 import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.SnappyStreamCompressionDecorator;
@@ -109,14 +109,16 @@ public class StateMetadataUtils {
 	}
 
 	public static Optional<KeyedBackendSerializationProxy<?>> getKeyedBackendSerializationProxy(OperatorState opState) {
-		return firstKeyGroupStateHandle(opState).map(h -> getKeyedBackendSerializationProxy(h));
-	}
-
-	private static Optional<StreamStateHandle> firstKeyGroupStateHandle(OperatorState opState) {
-		Iterator<KeyedStateHandle> it = opState.getState(0).getManagedKeyedState().iterator();
-		if (it.hasNext()) {
-			return Optional.of((StreamStateHandle) it.next());
-		} else {
+		try {
+			KeyedStateHandle firstHandle = opState.getStates().iterator().next().getManagedKeyedState().iterator()
+					.next();
+			if (firstHandle instanceof IncrementalKeyedStateHandle) {
+				return Optional.of(getKeyedBackendSerializationProxy(
+						((IncrementalKeyedStateHandle) firstHandle).getMetaStateHandle()));
+			} else {
+				return Optional.of(getKeyedBackendSerializationProxy((StreamStateHandle) firstHandle));
+			}
+		} catch (Throwable t) {
 			return Optional.empty();
 		}
 	}

@@ -26,8 +26,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.typeutils.base.array.BytePrimitiveArraySerializer;
@@ -194,10 +192,6 @@ public class RocksDBSavepointIterator implements Iterator<KeyedStateRow>, Closea
 
 		this.stateId = stateId;
 		this.stateName = stateName;
-	}
-
-	public Stream<KeyedStateRow> stream() {
-		return StreamSupport.stream(spliterator(), false);
 	}
 
 	@Override
