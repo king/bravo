@@ -19,6 +19,7 @@ package com.king.bravo.testing;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.function.Function;
@@ -28,6 +29,8 @@ import org.apache.flink.client.program.ClusterClient;
 import org.apache.flink.client.program.ProgramInvocationException;
 import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.contrib.streaming.state.RocksDBStateBackend;
+import org.apache.flink.core.fs.FileStatus;
+import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
 import org.apache.flink.runtime.jobgraph.JobGraph;
@@ -36,6 +39,7 @@ import org.apache.flink.runtime.state.StateBackend;
 import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedCheckpointCleanup;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.test.util.MiniClusterResource;
@@ -74,14 +78,33 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 		actions.clear();
 	}
 
-	public List<String> runTestPipeline(Function<DataStream<String>, DataStream<String>> pipelinerBuilder)
-			throws Exception {
-		return runTestPipeline(4, null, pipelinerBuilder);
+	public Path getLastCheckpointPath() throws IOException {
+		FileStatus[] listStatus = FileSystem.getLocalFileSystem()
+				.listStatus(new Path(getCheckpointDir(), jobID.toString()));
+
+		return Arrays.stream(listStatus)
+				.filter(s -> s.getPath().getName().startsWith("chk"))
+				.sorted((s1, s2) -> -Integer.compare(
+						Integer.parseInt(s1.getPath().getName().split("-")[1]),
+						Integer.parseInt(s2.getPath().getName().split("-")[1])))
+				.findFirst()
+				.map(s -> s.getPath())
+				.orElseThrow(() -> new IllegalStateException("Cannot find any checkpoints"));
 	}
 
-	public List<String> restoreTestPipelineFromSavepoint(String savepoint,
+	public List<String> runTestPipeline(Function<DataStream<String>, DataStream<String>> pipelinerBuilder)
+			throws Exception {
+		return runTestPipeline(2, null, pipelinerBuilder);
+	}
+
+	public List<String> restoreTestPipelineFromSnapshot(String savepoint,
 			Function<DataStream<String>, DataStream<String>> pipelinerBuilder) throws Exception {
-		return runTestPipeline(4, savepoint, pipelinerBuilder);
+		return runTestPipeline(2, savepoint, pipelinerBuilder);
+	}
+
+	public List<String> restoreTestPipelineFromLastCheckpoint(
+			Function<DataStream<String>, DataStream<String>> pipelinerBuilder) throws Exception {
+		return restoreTestPipelineFromSnapshot(getLastCheckpointPath().getPath(), pipelinerBuilder);
 	}
 
 	public List<String> restoreTestPipelineFromLastSavepoint(
@@ -89,7 +112,7 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 		if (TriggerSavepoint.lastSavepointPath == null) {
 			throw new RuntimeException("triggerSavepoint must be called to obtain a valid savepoint");
 		}
-		return restoreTestPipelineFromSavepoint(TriggerSavepoint.lastSavepointPath, pipelinerBuilder);
+		return restoreTestPipelineFromSnapshot(TriggerSavepoint.lastSavepointPath, pipelinerBuilder);
 	}
 
 	private StreamExecutionEnvironment createJobGraph(int parallelism,
@@ -102,10 +125,11 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 		env.getConfig().disableSysoutLogging();
+		env.getCheckpointConfig().enableExternalizedCheckpoints(ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
 		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 		env.setBufferTimeout(0);
 		env.setParallelism(parallelism);
-		env.enableCheckpointing(1000, CheckpointingMode.EXACTLY_ONCE);
+		env.enableCheckpointing(500, CheckpointingMode.EXACTLY_ONCE);
 
 		env.setStateBackend((StateBackend) new RocksDBStateBackend(checkpointDir.toString(), true));
 
@@ -133,7 +157,7 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 		}
 		jobID = jobGraph.getJobID();
 
-		MiniClusterResourceFactory clusterFactory = createCluster(2, 2);
+		MiniClusterResourceFactory clusterFactory = createCluster(1, 2);
 		MiniClusterResource cluster = clusterFactory.get();
 		cluster.before();
 		client = cluster.getClusterClient();
@@ -162,6 +186,10 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 
 	protected Path getLastSavepointPath() {
 		return new Path(TriggerSavepoint.lastSavepointPath);
+	}
+
+	protected Savepoint getLastCheckpoint() throws IOException {
+		return StateMetadataUtils.loadSavepoint(getLastCheckpointPath());
 	}
 
 	protected Savepoint getLastSavepoint() throws IOException {

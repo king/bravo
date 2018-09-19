@@ -55,15 +55,17 @@ public class KeyedStateAddRemoveTest extends BravoTestPipeline {
 		process("2");
 		process("1");
 		process("2");
+		sleep(2000);
 		triggerSavepoint();
 		List<String> output = runTestPipeline(this::constructTestPipeline);
+		System.err.println(getLastCheckpointPath());
 		assertEquals(Sets.newHashSet("(1,0)", "(2,0)"), new HashSet<>(output));
 		Path newSavepointPath = transformLastSavepoint();
 
 		// Filter state is dropped, should process this now
 		process("1");
 		process("2");
-		List<String> restoredOutput = restoreTestPipelineFromSavepoint(newSavepointPath.getPath(),
+		List<String> restoredOutput = restoreTestPipelineFromSnapshot(newSavepointPath.getPath(),
 				this::restoreTestPipeline);
 		assertEquals(Sets.newHashSet("(1,0)", "(2,0)", "(1,101)", "(2,101)"),
 				new HashSet<>(restoredOutput));

@@ -64,7 +64,7 @@ public class ValueStateTransformationTest extends BravoTestPipeline {
 
 		process("1");
 		process("2");
-		List<String> restoredOutput = restoreTestPipelineFromSavepoint(newSavepointPath.getPath(),
+		List<String> restoredOutput = restoreTestPipelineFromSnapshot(newSavepointPath.getPath(),
 				this::restoreTestPipeline);
 		assertEquals(Sets.newHashSet("(1,1)", "(2,1)", "(1,2)", "(1,5,103)", "(2,3,1002)"),
 				new HashSet<>(restoredOutput));
