@@ -58,7 +58,6 @@ public class KeyedStateAddRemoveTest extends BravoTestPipeline {
 		sleep(2000);
 		triggerSavepoint();
 		List<String> output = runTestPipeline(this::constructTestPipeline);
-		System.err.println(getLastCheckpointPath());
 		assertEquals(Sets.newHashSet("(1,0)", "(2,0)"), new HashSet<>(output));
 		Path newSavepointPath = transformLastSavepoint();
 

@@ -56,7 +56,7 @@ public class StateMetadataUtils {
 	 */
 	public static Savepoint loadSavepoint(String checkpointPointer) throws IOException {
 		try {
-			Method resolveCheckpointPointer = AbstractFsCheckpointStorage.class.getMethod("resolveCheckpointPointer",
+			Method resolveCheckpointPointer = AbstractFsCheckpointStorage.class.getDeclaredMethod("resolveCheckpointPointer",
 					String.class);
 			resolveCheckpointPointer.setAccessible(true);
 			CompletedCheckpointStorageLocation loc = (CompletedCheckpointStorageLocation) resolveCheckpointPointer
