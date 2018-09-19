@@ -91,17 +91,12 @@ DataSet<Tuple2<Integer, Integer>> newCounts = countState
 OperatorStateWriter writer = new OperatorStateWriter(savepoint, "CountPerKey",  newCheckpointDir);
 
 writer.addValueState("Count", newCounts);
-writer.addKeyedStateRows()
-
-// In order not to lose the other value states in the "CountPerKey" operator we have to get the unread rows from the reader
-stateBuilder.replaceKeyedState("CountPerKey", newStateRows.union(reader.getAllUnreadKeyedStateRows());
 
 // Once we are happy with all the modifications it's time to write the states to the persistent store
-OperatorState newOpState = operatorStateWriter.writeAll();
+OperatorState newOpState = writer.writeAll();
 
 // Last thing we do is create a new meta file that points to a valid savepoint
-Savepoint newSavepoint = StateMetadataUtils.createNewSavepoint(savepoint, newOpState);
-StateMetadataUtils.writeSavepointMetadata(newCheckpointDir, newSavepoint);
+StateMetadataUtils.writeSavepointMetadata(newCheckpointDir, StateMetadataUtils.createNewSavepoint(savepoint, newOpState));
 ```
 
 We can also use the StateTransformer to transform and replace non-keyed states:
