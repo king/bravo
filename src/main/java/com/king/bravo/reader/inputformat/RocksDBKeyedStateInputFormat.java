@@ -19,9 +19,10 @@ package com.king.bravo.reader.inputformat;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.UUID;
-import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import org.apache.flink.api.common.functions.FilterFunction;
@@ -29,12 +30,12 @@ import org.apache.flink.api.common.io.DefaultInputSplitAssigner;
 import org.apache.flink.api.common.io.RichInputFormat;
 import org.apache.flink.api.common.io.statistics.BaseStatistics;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.core.fs.CloseableRegistry;
 import org.apache.flink.core.io.InputSplitAssigner;
 import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.io.disk.iomanager.IOManagerAsync;
 import org.apache.flink.runtime.state.IncrementalKeyedStateHandle;
 import org.apache.flink.runtime.state.KeyGroupsStateHandle;
+import org.apache.flink.util.IOUtils;
 
 import com.king.bravo.types.KeyedStateRow;
 
@@ -50,11 +51,10 @@ public class RocksDBKeyedStateInputFormat extends RichInputFormat<KeyedStateRow,
 	private static final long serialVersionUID = 1L;
 	private final OperatorState operatorState;
 
-	private transient CloseableRegistry closeableRegistry;
-	private transient Iterator<KeyedStateRow> rowIt;
+	private transient Iterator<KeyedStateRow> mergeIterator;
 
-	private boolean reachedEnd;
 	private FilterFunction<String> stateFilter;
+	private List<AutoCloseable> iterators = new ArrayList<>();
 
 	public RocksDBKeyedStateInputFormat(OperatorState operatorState) {
 		this(operatorState, i -> true);
@@ -66,32 +66,24 @@ public class RocksDBKeyedStateInputFormat extends RichInputFormat<KeyedStateRow,
 	}
 
 	@Override
-	public void openInputFormat() throws IOException {
-		closeableRegistry = new CloseableRegistry();
-	}
-
-	@Override
 	public void open(KeyedStateInputSplit split) throws IOException {
 		IOManagerAsync iomanager = new IOManagerAsync();
 		String[] spillingDirectoriesPaths = iomanager.getSpillingDirectoriesPaths();
 
-		rowIt = Stream.of(split.getOperatorSubtaskState())
-				.flatMap(subtaskState -> subtaskState.getManagedKeyedState().stream())
+		mergeIterator = split.getOperatorSubtaskState()
+				.getManagedKeyedState()
+				.stream()
 				.map(keyedStateHandle -> {
 					if (keyedStateHandle instanceof IncrementalKeyedStateHandle) {
 						File localDir = new File(spillingDirectoriesPaths[0], "rocksdb_" + UUID.randomUUID());
 						if (!localDir.mkdirs()) {
 							throw new RuntimeException("Could not create " + localDir);
 						}
-						try {
-							RocksDBCheckpointIterator reader = new RocksDBCheckpointIterator(
-									(IncrementalKeyedStateHandle) keyedStateHandle,
-									stateFilter, localDir.getAbsolutePath());
-							closeableRegistry.registerCloseable(reader);
-							return reader;
-						} catch (Exception e) {
-							throw new RuntimeException(e);
-						}
+						RocksDBCheckpointIterator iterator = new RocksDBCheckpointIterator(
+								(IncrementalKeyedStateHandle) keyedStateHandle,
+								stateFilter, localDir.getAbsolutePath());
+						iterators.add(iterator);
+						return iterator;
 					}
 
 					if (!(keyedStateHandle instanceof KeyGroupsStateHandle)) {
@@ -99,43 +91,26 @@ public class RocksDBKeyedStateInputFormat extends RichInputFormat<KeyedStateRow,
 								"expected: " + KeyGroupsStateHandle.class +
 								", but found: " + keyedStateHandle.getClass());
 					} else {
-						RocksDBSavepointIterator reader = new RocksDBSavepointIterator(
+						RocksDBSavepointIterator iterator = new RocksDBSavepointIterator(
 								(KeyGroupsStateHandle) keyedStateHandle, stateFilter);
-						try {
-							closeableRegistry.registerCloseable(reader);
-						} catch (IOException e) {
-							throw new RuntimeException(e);
-						}
-						return reader;
-
+						iterators.add(iterator);
+						return iterator;
 					}
-				})
-				.flatMap(it -> StreamSupport.stream(it.spliterator(), false))
-				.iterator();
-
+				}).flatMap(it -> StreamSupport.stream(it.spliterator(), false)).iterator();
 	}
 
 	@Override
 	public boolean reachedEnd() throws IOException {
-		return !rowIt.hasNext();
+		return !mergeIterator.hasNext();
 	}
 
 	@Override
 	public KeyedStateRow nextRecord(KeyedStateRow reuse) throws IOException {
-		if (reachedEnd) {
-			return null;
-		}
-		return rowIt.next();
-	}
-
-	@Override
-	public void configure(Configuration parameters) {
-		// nothing by default
+		return mergeIterator.next();
 	}
 
 	@Override
 	public BaseStatistics getStatistics(BaseStatistics cachedStatistics) throws IOException {
-		// nothing by default
 		return cachedStatistics;
 	}
 
@@ -153,12 +128,10 @@ public class RocksDBKeyedStateInputFormat extends RichInputFormat<KeyedStateRow,
 
 	@Override
 	public void close() throws IOException {
-		// nothing by default
+		IOUtils.closeAllQuietly(iterators);
+		iterators.clear();
 	}
 
 	@Override
-	public void closeInputFormat() throws IOException {
-		closeableRegistry.close();
-	}
-
+	public void configure(Configuration parameters) {}
 }

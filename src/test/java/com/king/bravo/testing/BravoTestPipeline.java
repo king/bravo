@@ -94,12 +94,12 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 
 	public List<String> runTestPipeline(Function<DataStream<String>, DataStream<String>> pipelinerBuilder)
 			throws Exception {
-		return runTestPipeline(4, null, pipelinerBuilder);
+		return runTestPipeline(2, null, pipelinerBuilder);
 	}
 
 	public List<String> restoreTestPipelineFromSnapshot(String savepoint,
 			Function<DataStream<String>, DataStream<String>> pipelinerBuilder) throws Exception {
-		return runTestPipeline(4, savepoint, pipelinerBuilder);
+		return runTestPipeline(2, savepoint, pipelinerBuilder);
 	}
 
 	public List<String> restoreTestPipelineFromLastCheckpoint(
@@ -157,7 +157,7 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 		}
 		jobID = jobGraph.getJobID();
 
-		MiniClusterResourceFactory clusterFactory = createCluster(2, 2);
+		MiniClusterResourceFactory clusterFactory = createCluster(1, 2);
 		MiniClusterResource cluster = clusterFactory.get();
 		cluster.before();
 		client = cluster.getClusterClient();

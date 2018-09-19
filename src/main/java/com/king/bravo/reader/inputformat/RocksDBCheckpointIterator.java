@@ -26,13 +26,18 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.configuration.ConfigConstants;
 import org.apache.flink.contrib.streaming.state.RocksIteratorWrapper;
+import org.apache.flink.core.fs.CloseableRegistry;
+import org.apache.flink.core.fs.FSDataInputStream;
+import org.apache.flink.core.fs.FSDataOutputStream;
+import org.apache.flink.core.fs.FileSystem;
+import org.apache.flink.core.fs.Path;
 import org.apache.flink.runtime.state.IncrementalKeyedStateHandle;
+import org.apache.flink.runtime.state.StateHandleID;
+import org.apache.flink.runtime.state.StreamStateHandle;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
 import org.apache.flink.util.IOUtils;
 import org.apache.flink.util.Preconditions;
@@ -51,23 +56,93 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 	private final DBOptions dbOptions = new DBOptions();
 	private final ColumnFamilyOptions colOptions = new ColumnFamilyOptions();
 	private final RocksDB db;
-	private final LinkedList<Entry<String, RocksIteratorWrapper>> iteratorQueue;
+	private LinkedList<Entry<String, RocksIteratorWrapper>> iteratorQueue;
 
 	private String currentName;
 	private RocksIteratorWrapper currentIterator;
 
 	private ArrayList<ColumnFamilyHandle> stateColumnFamilyHandles;
+	private CloseableRegistry cancelStreamRegistry;
 
 	public RocksDBCheckpointIterator(IncrementalKeyedStateHandle handle, FilterFunction<String> stateFilter,
-			String rocksdbLocalPaths) throws Exception {
+			String localPath) {
+		this.cancelStreamRegistry = new CloseableRegistry();
 		List<StateMetaInfoSnapshot> stateMetaInfoSnapshots = StateMetadataUtils
 				.getKeyedBackendSerializationProxy(handle.getMetaStateHandle()).getStateMetaInfoSnapshots();
 
 		stateColumnFamilyHandles = new ArrayList<>(stateMetaInfoSnapshots.size() + 1);
 		List<ColumnFamilyDescriptor> stateColumnFamilyDescriptors = createAndRegisterColumnFamilyDescriptors(
 				stateMetaInfoSnapshots);
-		this.db = openDB(rocksdbLocalPaths, stateColumnFamilyDescriptors, stateColumnFamilyHandles);
+		try {
+			transferAllStateDataToDirectory(handle, new Path(localPath));
+			this.db = openDB(localPath, stateColumnFamilyDescriptors, stateColumnFamilyHandles);
+			createColumnIterators(stateFilter, stateMetaInfoSnapshots);
+		} catch (Exception e) {
+			throw new IllegalStateException(e);
+		}
+	}
 
+	private void transferAllStateDataToDirectory(
+			IncrementalKeyedStateHandle restoreStateHandle,
+			Path dest) throws IOException {
+
+		final Map<StateHandleID, StreamStateHandle> sstFiles = restoreStateHandle.getSharedState();
+		final Map<StateHandleID, StreamStateHandle> miscFiles = restoreStateHandle.getPrivateState();
+
+		transferAllDataFromStateHandles(sstFiles, dest);
+		transferAllDataFromStateHandles(miscFiles, dest);
+	}
+
+	private void transferAllDataFromStateHandles(
+			Map<StateHandleID, StreamStateHandle> stateHandleMap,
+			Path restoreInstancePath) throws IOException {
+
+		for (Map.Entry<StateHandleID, StreamStateHandle> entry : stateHandleMap.entrySet()) {
+			StateHandleID stateHandleID = entry.getKey();
+			StreamStateHandle remoteFileHandle = entry.getValue();
+			copyStateDataHandleData(new Path(restoreInstancePath, stateHandleID.toString()), remoteFileHandle);
+		}
+	}
+
+	private void copyStateDataHandleData(
+			Path restoreFilePath,
+			StreamStateHandle remoteFileHandle) throws IOException {
+
+		FileSystem restoreFileSystem = restoreFilePath.getFileSystem();
+
+		FSDataInputStream inputStream = null;
+		FSDataOutputStream outputStream = null;
+
+		try {
+			inputStream = remoteFileHandle.openInputStream();
+			cancelStreamRegistry.registerCloseable(inputStream);
+
+			outputStream = restoreFileSystem.create(restoreFilePath, FileSystem.WriteMode.OVERWRITE);
+			cancelStreamRegistry.registerCloseable(outputStream);
+
+			byte[] buffer = new byte[8 * 1024];
+			while (true) {
+				int numBytes = inputStream.read(buffer);
+				if (numBytes == -1) {
+					break;
+				}
+
+				outputStream.write(buffer, 0, numBytes);
+			}
+		} finally {
+			if (cancelStreamRegistry.unregisterCloseable(inputStream)) {
+				inputStream.close();
+			}
+
+			if (cancelStreamRegistry.unregisterCloseable(outputStream)) {
+				outputStream.close();
+			}
+		}
+	}
+
+	private void createColumnIterators(FilterFunction<String> stateFilter,
+			List<StateMetaInfoSnapshot> stateMetaInfoSnapshots)
+			throws Exception {
 		Map<String, RocksIteratorWrapper> iterators = new HashMap<>();
 		for (int i = 0; i < stateMetaInfoSnapshots.size(); i++) {
 			String name = stateMetaInfoSnapshots.get(i).getName();
@@ -78,6 +153,7 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 				iterator.seekToFirst();
 			}
 		}
+
 		iteratorQueue = new LinkedList<>(iterators.entrySet());
 		updateCurrentIterator();
 	}
@@ -100,7 +176,6 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 		List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>(stateMetaInfoSnapshots.size());
 
 		for (StateMetaInfoSnapshot stateMetaInfoSnapshot : stateMetaInfoSnapshots) {
-
 			ColumnFamilyDescriptor columnFamilyDescriptor = new ColumnFamilyDescriptor(
 					stateMetaInfoSnapshot.getName().getBytes(ConfigConstants.DEFAULT_CHARSET),
 					colOptions);
@@ -110,23 +185,18 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 		return columnFamilyDescriptors;
 	}
 
-	private RocksDB openDB(
-			String path,
-			List<ColumnFamilyDescriptor> stateColumnFamilyDescriptors,
+	private RocksDB openDB(String path, List<ColumnFamilyDescriptor> stateColumnFamilyDescriptors,
 			List<ColumnFamilyHandle> stateColumnFamilyHandles) throws IOException {
 
 		List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>(1 + stateColumnFamilyDescriptors.size());
 
 		// we add the required descriptor for the default CF in FIRST position, see
 		// https://github.com/facebook/rocksdb/wiki/RocksJava-Basics#opening-a-database-with-column-families
-		columnFamilyDescriptors
-				.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, colOptions));
+		columnFamilyDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, colOptions));
 		columnFamilyDescriptors.addAll(stateColumnFamilyDescriptors);
 
-		RocksDB dbRef;
-
 		try {
-			dbRef = RocksDB.open(
+			return RocksDB.open(
 					dbOptions,
 					Preconditions.checkNotNull(path),
 					columnFamilyDescriptors,
@@ -134,12 +204,6 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 		} catch (RocksDBException e) {
 			throw new IOException("Error while opening RocksDB instance.", e);
 		}
-
-		// requested + default CF
-		Preconditions.checkState(1 + stateColumnFamilyDescriptors.size() == stateColumnFamilyHandles.size(),
-				"Not all requested column family handles have been created");
-
-		return dbRef;
 	}
 
 	@Override
@@ -170,11 +234,8 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 			IOUtils.closeQuietly(columnFamilyHandle);
 		}
 
-		IOUtils.closeQuietly(db);
-	}
-
-	public Stream<KeyedStateRow> stream() {
-		return StreamSupport.stream(spliterator(), false);
+		IOUtils.closeQuietly(dbOptions);
+		IOUtils.closeQuietly(cancelStreamRegistry);
 	}
 
 	@Override

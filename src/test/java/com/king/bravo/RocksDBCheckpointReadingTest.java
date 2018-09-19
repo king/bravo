@@ -55,6 +55,7 @@ public class RocksDBCheckpointReadingTest extends BravoTestPipeline {
 		validateCheckpointedStateReading();
 	}
 
+	@SuppressWarnings("unchecked")
 	private void validateCheckpointedStateReading() throws IOException, Exception {
 		ExecutionEnvironment environment = ExecutionEnvironment.createLocalEnvironment();
 		Savepoint savepoint = getLastCheckpoint();
@@ -63,7 +64,7 @@ public class RocksDBCheckpointReadingTest extends BravoTestPipeline {
 		DataSet<Tuple2<Integer, Integer>> countState = reader.readKeyedStates(
 				KeyedStateReader.forValueStateKVPairs("Count", new TypeHint<Tuple2<Integer, Integer>>() {}));
 
-		assertEquals(Sets.newHashSet("(1,1)", "(2,1)", "(1,2)"), new HashSet<>(countState.collect()));
+		assertEquals(Sets.newHashSet(Tuple2.of(1, 2), Tuple2.of(2, 1)), new HashSet<>(countState.collect()));
 	}
 
 	public DataStream<String> constructTestPipeline(DataStream<String> source) {
