@@ -3,8 +3,8 @@
 ## Introduction
 
 Bravo is a convenient state reader and writer library leveraging the Flink’s
-batch processing capabilities. It supports processing and writing Flink streaming savepoints.
-At the moment it only supports processing RocksDB savepoints but this can be extended in the future for other state backends and checkpoint types.
+batch processing capabilities. It supports processing and writing Flink streaming snapshots.
+At the moment it only supports processing RocksDB snapshots but this can be extended in the future for other state backends.
 
 Our goal is to cover a few basic features:
  - Converting keyed states to Flink DataSets for processing and analytics
@@ -28,12 +28,12 @@ Who am I to tell you what code to run in prod, I have to agree, but please doubl
 
 ### Reading and processing states
 
-The `OperatorStateReader` provides DataSet input format that understands RocksDB savepoints and can extract keyed state rows from it. The input format creates input splits by operator subtask of the savepoint at the moment but we can change this to split by keygroups directly.
+The `OperatorStateReader` provides DataSet input format that understands RocksDB savepoints and checkpoints and can extract keyed state rows from it. The input format creates input splits by operator subtask of the savepoint at the moment but we can change this to split by keygroups directly.
 
-The reader can also be used to access non-keyed states.
+The reader can also be used to provide in-memory access to non-keyed states.
 
 ```java
-// First we start by taking a savepoint of our running job...
+// First we start by taking a savepoint/checkpoint of our running job...
 // Now it's time to load the metadata
 Savepoint savepoint = StateMetadataUtils.loadSavepoint(savepointPath);
 
