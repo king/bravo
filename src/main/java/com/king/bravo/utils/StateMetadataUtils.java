@@ -19,6 +19,7 @@ package com.king.bravo.utils;
 
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
@@ -36,6 +37,7 @@ import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
 import org.apache.flink.runtime.checkpoint.savepoint.SavepointV2;
 import org.apache.flink.runtime.jobgraph.OperatorID;
+import org.apache.flink.runtime.state.CompletedCheckpointStorageLocation;
 import org.apache.flink.runtime.state.IncrementalKeyedStateHandle;
 import org.apache.flink.runtime.state.KeyedBackendSerializationProxy;
 import org.apache.flink.runtime.state.KeyedStateHandle;
@@ -43,6 +45,7 @@ import org.apache.flink.runtime.state.SnappyStreamCompressionDecorator;
 import org.apache.flink.runtime.state.StreamCompressionDecorator;
 import org.apache.flink.runtime.state.StreamStateHandle;
 import org.apache.flink.runtime.state.UncompressedStreamCompressionDecorator;
+import org.apache.flink.runtime.state.filesystem.AbstractFsCheckpointStorage;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot.CommonSerializerKeys;
 
@@ -51,10 +54,20 @@ public class StateMetadataUtils {
 	/**
 	 * Load the Savepoint metadata object from the given path
 	 */
-	public static Savepoint loadSavepoint(Path path) throws IOException {
-		Path metaPath = path.getName().equals("_metadata") ? path : new Path(path, "_metadata");
-		return Checkpoints.loadCheckpointMetadata(new DataInputStream(metaPath.getFileSystem().open(metaPath)),
-				StateMetadataUtils.class.getClassLoader());
+	public static Savepoint loadSavepoint(String checkpointPointer) throws IOException {
+		try {
+			Method resolveCheckpointPointer = AbstractFsCheckpointStorage.class.getMethod("resolveCheckpointPointer",
+					String.class);
+			resolveCheckpointPointer.setAccessible(true);
+			CompletedCheckpointStorageLocation loc = (CompletedCheckpointStorageLocation) resolveCheckpointPointer
+					.invoke(null, checkpointPointer);
+
+			return Checkpoints.loadCheckpointMetadata(new DataInputStream(loc.getMetadataHandle().openInputStream()),
+					StateMetadataUtils.class.getClassLoader());
+		} catch (Throwable t) {
+			throw new RuntimeException(t);
+		}
+
 	}
 
 	public static OperatorState getOperatorState(Savepoint savepoint, String uid) {
@@ -169,7 +182,7 @@ public class StateMetadataUtils {
 	}
 
 	public static Path writeSavepointMetadata(Path newCheckpointBasePath, Savepoint savepoint) throws IOException {
-		Path p = new Path(newCheckpointBasePath, "_metadata");
+		Path p = new Path(newCheckpointBasePath, AbstractFsCheckpointStorage.METADATA_FILE_NAME);
 		Checkpoints.storeCheckpointMetadata(savepoint,
 				newCheckpointBasePath.getFileSystem().create(p, WriteMode.NO_OVERWRITE));
 		return p;

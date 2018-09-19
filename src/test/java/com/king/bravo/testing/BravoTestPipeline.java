@@ -189,11 +189,11 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 	}
 
 	protected Savepoint getLastCheckpoint() throws IOException {
-		return StateMetadataUtils.loadSavepoint(getLastCheckpointPath());
+		return StateMetadataUtils.loadSavepoint(getLastCheckpointPath().getPath());
 	}
 
 	protected Savepoint getLastSavepoint() throws IOException {
-		return StateMetadataUtils.loadSavepoint(getLastSavepointPath());
+		return StateMetadataUtils.loadSavepoint(getLastSavepointPath().getPath());
 	}
 
 	public void process(String element) {
