@@ -149,7 +149,10 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 	private List<String> runTestPipeline(int parallelism, String savepoint,
 			Function<DataStream<String>, DataStream<String>> pipelinerBuilder) throws Exception {
 
-		cancelJob();
+		if (!actions.isEmpty() && actions.getLast() instanceof CancelJob
+				&& ((CancelJob) actions.getLast()).isClusterActionTriggered()) {
+			cancelJob();
+		}
 
 		jobGraph = createJobGraph(parallelism, pipelinerBuilder).getStreamGraph().getJobGraph();
 		if (savepoint != null) {

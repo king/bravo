@@ -73,6 +73,8 @@ public class OperatorStateWriter {
 	private Map<String, StateMetaInfoSnapshot> metaSnapshots;
 	private KeyedBackendSerializationProxy<?> proxy;
 
+	private boolean keepBaseKeyedStates = true;
+
 	private TypeSerializer<?> keySerializer = null;
 
 	public OperatorStateWriter(Savepoint sp, String uid, Path newCheckpointBasePath) {
@@ -114,6 +116,7 @@ public class OperatorStateWriter {
 	 */
 	public void addKeyedStateRows(DataSet<KeyedStateRow> rows) {
 		allRows = allRows == null ? rows : allRows.union(rows);
+		keepBaseKeyedStates = false;
 	}
 
 	/**
@@ -124,6 +127,7 @@ public class OperatorStateWriter {
 	 */
 	public void deleteKeyedState(String stateName) {
 		metaSnapshots.remove(stateName);
+		keepBaseKeyedStates = false;
 	}
 
 	private void updateProxy() {
@@ -206,7 +210,14 @@ public class OperatorStateWriter {
 		Path outDir = makeOutputDir();
 
 		Map<Integer, KeyedStateHandle> handleMap = new HashMap<>();
-		if (allRows != null && !metaSnapshots.isEmpty()) {
+		if (allRows == null) {
+			if (!keepBaseKeyedStates && !metaSnapshots.isEmpty()) {
+				throw new IllegalStateException(
+						"States must be added when any modification of existing keyed states were made");
+			} else {
+				// Either keep all state or delete all (no need to do anything here)
+			}
+		} else if (!metaSnapshots.isEmpty()) {
 			updateProxy();
 			ByteArrayDataOutputView bow = new ByteArrayDataOutputView();
 			proxy.write(bow);
@@ -220,6 +231,9 @@ public class OperatorStateWriter {
 							proxy.isUsingKeyGroupCompression(), outDir, bow.toByteArray()));
 
 			handles.collect().stream().forEach(t -> handleMap.put(t.f0, t.f1));
+		} else {
+			throw new IllegalStateException(
+					"There are state rows but no state metadata... maybe you meant to use createNewValueState(...)");
 		}
 
 		// We construct a new operatorstate with the collected handles
@@ -236,10 +250,11 @@ public class OperatorStateWriter {
 					new OperatorSubtaskState(
 							opHandle,
 							subtaskState.getRawOperatorState(),
-							new StateObjectCollection<>(
-									newKeyedHandle != null
-											? Lists.newArrayList(newKeyedHandle)
-											: Collections.emptyList()),
+							keepBaseKeyedStates ? subtaskState.getManagedKeyedState()
+									: new StateObjectCollection<>(
+											newKeyedHandle != null
+													? Lists.newArrayList(newKeyedHandle)
+													: Collections.emptyList()),
 							subtaskState.getRawKeyedState()));
 		});
 

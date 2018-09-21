@@ -51,4 +51,12 @@ public abstract class OneTimePipelineAction implements PipelineAction {
 
 	protected void onceExecuteClusterAction(ClusterClient<?> client, JobID id) throws Exception {}
 
+	public boolean isCheckpointLockTriggered() {
+		return checkpointLockTriggered;
+	}
+
+	public boolean isClusterActionTriggered() {
+		return clusterActionTriggered;
+	}
+
 }
