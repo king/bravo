@@ -159,6 +159,7 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 	}
 
 	private void updateCurrentIterator() {
+		IOUtils.closeQuietly(currentIterator);
 		if (iteratorQueue.isEmpty()) {
 			currentIterator = null;
 			currentName = null;
@@ -230,12 +231,11 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 
 	@Override
 	public void close() throws IOException {
-		for (ColumnFamilyHandle columnFamilyHandle : stateColumnFamilyHandles) {
-			IOUtils.closeQuietly(columnFamilyHandle);
-		}
-
-		IOUtils.closeQuietly(dbOptions);
 		IOUtils.closeQuietly(cancelStreamRegistry);
+		IOUtils.closeAllQuietly(stateColumnFamilyHandles);
+		IOUtils.closeQuietly(db);
+		IOUtils.closeQuietly(dbOptions);
+		IOUtils.closeQuietly(colOptions);
 	}
 
 	@Override

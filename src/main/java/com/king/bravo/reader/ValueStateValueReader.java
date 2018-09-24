@@ -18,17 +18,20 @@
 package com.king.bravo.reader;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.core.memory.ByteArrayInputStreamWithPos;
+import org.apache.flink.core.memory.DataInputViewStreamWrapper;
 import org.apache.flink.util.Collector;
-import org.apache.flink.util.InstantiationUtil;
 
 import com.king.bravo.types.KeyedStateRow;
 
 public class ValueStateValueReader<K, V> extends KeyedStateReader<K, V, V> {
 
 	private static final long serialVersionUID = 1L;
+	private final boolean nullable;
 
-	public ValueStateValueReader(String stateName, TypeInformation<V> outValueType) {
+	public ValueStateValueReader(String stateName, TypeInformation<V> outValueType, boolean nullable) {
 		super(stateName, null, outValueType, outValueType);
+		this.nullable = nullable;
 	}
 
 	@Override
@@ -37,6 +40,19 @@ public class ValueStateValueReader<K, V> extends KeyedStateReader<K, V, V> {
 			return;
 		}
 
-		out.collect(InstantiationUtil.deserializeFromByteArray(valueDeserializer, row.getValueBytes()));
+		byte[] valueBytes = row.getValueBytes();
+
+		V value = null;
+		try (ByteArrayInputStreamWithPos valIs = new ByteArrayInputStreamWithPos(valueBytes)) {
+			DataInputViewStreamWrapper iw = new DataInputViewStreamWrapper(valIs);
+			if (!nullable || !iw.readBoolean()) {
+				value = valueDeserializer.deserialize(iw);
+			}
+		}
+		if (value == null) {
+			throw new RuntimeException("MapStates with null values are not supported at the moment.");
+		} else {
+			out.collect(value);
+		}
 	}
 }
