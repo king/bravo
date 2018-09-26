@@ -18,6 +18,7 @@
 package com.king.bravo.reader.inputformat;
 
 import java.io.Closeable;
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -39,6 +40,7 @@ import org.apache.flink.runtime.state.IncrementalKeyedStateHandle;
 import org.apache.flink.runtime.state.StateHandleID;
 import org.apache.flink.runtime.state.StreamStateHandle;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
+import org.apache.flink.util.FileUtils;
 import org.apache.flink.util.IOUtils;
 import org.apache.flink.util.Preconditions;
 import org.rocksdb.ColumnFamilyDescriptor;
@@ -63,9 +65,11 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 
 	private ArrayList<ColumnFamilyHandle> stateColumnFamilyHandles;
 	private CloseableRegistry cancelStreamRegistry;
+	private String localPath;
 
 	public RocksDBCheckpointIterator(IncrementalKeyedStateHandle handle, FilterFunction<String> stateFilter,
 			String localPath) {
+		this.localPath = localPath;
 		this.cancelStreamRegistry = new CloseableRegistry();
 		List<StateMetaInfoSnapshot> stateMetaInfoSnapshots = StateMetadataUtils
 				.getKeyedBackendSerializationProxy(handle.getMetaStateHandle()).getStateMetaInfoSnapshots();
@@ -236,6 +240,7 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 		IOUtils.closeQuietly(db);
 		IOUtils.closeQuietly(dbOptions);
 		IOUtils.closeQuietly(colOptions);
+		FileUtils.deleteDirectoryQuietly(new File(localPath));
 	}
 
 	@Override

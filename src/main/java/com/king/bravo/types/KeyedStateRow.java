@@ -25,7 +25,7 @@ import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.core.memory.DataInputViewStreamWrapper;
 import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
 
-import com.king.bravo.utils.RocksDBKeySerializationUtils;
+import com.king.bravo.utils.RocksDBUtils;
 
 /**
  * Raw state row containing minimal data necessary for the RocksDB state backend
@@ -58,7 +58,7 @@ public class KeyedStateRow extends Tuple3<String, byte[], byte[]> {
 
 	public int getKeyGroup(int maxParallelism) throws IOException {
 		try (ByteArrayInputStream is = new ByteArrayInputStream(getKeyAndNamespaceBytes())) {
-			return RocksDBKeySerializationUtils.readKeyGroup(1, new DataInputViewStreamWrapper(is));
+			return RocksDBUtils.readKeyGroup(1, new DataInputViewStreamWrapper(is));
 		}
 	}
 

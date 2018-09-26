@@ -28,7 +28,7 @@ import org.apache.flink.runtime.state.VoidNamespaceSerializer;
 import org.apache.flink.util.InstantiationUtil;
 
 import com.king.bravo.types.KeyedStateRow;
-import com.king.bravo.utils.RocksDBKeySerializationUtils;
+import com.king.bravo.utils.RocksDBUtils;
 import com.king.bravo.utils.StateMetadataUtils;
 
 public class ValueStateToKeyedStateRow<K, V> implements MapFunction<Tuple2<K, V>, KeyedStateRow> {
@@ -56,9 +56,9 @@ public class ValueStateToKeyedStateRow<K, V> implements MapFunction<Tuple2<K, V>
 		ByteArrayOutputStreamWithPos os = new ByteArrayOutputStreamWithPos();
 		DataOutputViewStreamWrapper ov = new DataOutputViewStreamWrapper(os);
 
-		RocksDBKeySerializationUtils.writeKeyGroup(keyGroup, keygroupPrefixBytes, ov);
-		RocksDBKeySerializationUtils.writeKey(t.f0, keySerializer, os, ov, false);
-		RocksDBKeySerializationUtils.writeNameSpace(VoidNamespace.INSTANCE, VoidNamespaceSerializer.INSTANCE, os,
+		RocksDBUtils.writeKeyGroup(keyGroup, keygroupPrefixBytes, ov);
+		RocksDBUtils.writeKey(t.f0, keySerializer, os, ov, false);
+		RocksDBUtils.writeNameSpace(VoidNamespace.INSTANCE, VoidNamespaceSerializer.INSTANCE, os,
 				ov, false);
 
 		os.close();

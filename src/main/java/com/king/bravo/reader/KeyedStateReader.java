@@ -17,6 +17,8 @@
  */
 package com.king.bravo.reader;
 
+import java.util.List;
+
 import org.apache.commons.lang3.Validate;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
@@ -160,6 +162,26 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	public static <K, V> KeyedStateReader<K, V, V> forMapStateValues(String stateName,
 			TypeInformation<V> outValueType) {
 		return new ValueStateValueReader<>(stateName, outValueType, true);
+	}
+
+	/**
+	 * Create a reader for reading the state values for the given list state. The
+	 * provided type info will be used to deserialize the state (allowing possible
+	 * optimizations)
+	 */
+	public static <K, V> KeyedStateReader<K, V, Tuple2<K, V>> foListStateValues(String stateName,
+			TypeInformation<K> outKeyType, TypeInformation<V> outValueType) {
+		return new ListStateFlattenReader<>(stateName, outKeyType, outValueType);
+	}
+
+	/**
+	 * Create a reader for reading the state values for the given list state. The
+	 * provided type info will be used to deserialize the state (allowing possible
+	 * optimizations)
+	 */
+	public static <K, V> KeyedStateReader<K, V, Tuple2<K, List<V>>> foListStates(String stateName,
+			TypeInformation<K> outKeyType, TypeInformation<V> outValueType) {
+		return new ListStateListReader<>(stateName, outKeyType, outValueType);
 	}
 
 	/**

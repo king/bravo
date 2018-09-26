@@ -17,17 +17,22 @@
 package com.king.bravo.utils;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.core.memory.ByteArrayDataInputView;
 import org.apache.flink.core.memory.ByteArrayInputStreamWithPos;
 import org.apache.flink.core.memory.ByteArrayOutputStreamWithPos;
 import org.apache.flink.core.memory.DataInputView;
+import org.apache.flink.core.memory.DataInputViewStreamWrapper;
 import org.apache.flink.core.memory.DataOutputView;
+import org.apache.flink.util.FlinkRuntimeException;
 
 /**
  * Utils for RocksDB state serialization and deserialization.
  */
-public class RocksDBKeySerializationUtils {
+public class RocksDBUtils {
 
 	public static int readKeyGroup(int keyGroupPrefixBytes, DataInputView inputView) throws IOException {
 		int keyGroup = 0;
@@ -152,5 +157,37 @@ public class RocksDBKeySerializationUtils {
 
 	public static int computeRequiredBytesInKeyGroupPrefix(int totalKeyGroupsInJob) {
 		return totalKeyGroupsInJob > (Byte.MAX_VALUE + 1) ? 2 : 1;
+	}
+
+	public static <V> List<V> deserializeList(
+			byte[] valueBytes, TypeSerializer<V> elementSerializer) {
+		if (valueBytes == null) {
+			return null;
+		}
+
+		DataInputViewStreamWrapper in = new ByteArrayDataInputView(valueBytes);
+
+		List<V> result = new ArrayList<>();
+		V next;
+		while ((next = deserializeNextElement(in, elementSerializer)) != null) {
+			result.add(next);
+		}
+		return result;
+	}
+
+	public static <V> V deserializeNextElement(
+			DataInputViewStreamWrapper in, TypeSerializer<V> elementSerializer) {
+		try {
+			if (in.available() > 0) {
+				V element = elementSerializer.deserialize(in);
+				if (in.available() > 0) {
+					in.readByte();
+				}
+				return element;
+			}
+		} catch (IOException e) {
+			throw new FlinkRuntimeException("Unexpected list element deserialization failure");
+		}
+		return null;
 	}
 }

@@ -26,7 +26,7 @@ import org.apache.flink.util.Collector;
 import org.apache.flink.util.InstantiationUtil;
 
 import com.king.bravo.types.KeyedStateRow;
-import com.king.bravo.utils.RocksDBKeySerializationUtils;
+import com.king.bravo.utils.RocksDBUtils;
 
 public class ValueStateKVReader<K, V> extends KeyedStateReader<K, V, Tuple2<K, V>> {
 
@@ -50,7 +50,7 @@ public class ValueStateKVReader<K, V> extends KeyedStateReader<K, V, Tuple2<K, V
 		try (ByteArrayInputStreamWithPos keyIs = new ByteArrayInputStreamWithPos(keyAndNamespaceBytes)) {
 			DataInputViewStreamWrapper iw = new DataInputViewStreamWrapper(keyIs);
 			iw.skipBytesToRead(keygroupPrefixBytes);
-			key = RocksDBKeySerializationUtils.readKey(keyDeserializer, keyIs, iw, false);
+			key = RocksDBUtils.readKey(keyDeserializer, keyIs, iw, false);
 		}
 
 		V value = InstantiationUtil.deserializeFromByteArray(valueDeserializer, valueBytes);
