@@ -1,5 +1,18 @@
 apply plugin: 'java'
+apply plugin: 'maven'
+apply plugin: 'com.github.johnrengelman.shadow'
+
 group = 'com.king.bravo'
+
+buildscript {
+	repositories {
+		maven { url "https://plugins.gradle.org/m2/" }
+	}
+	dependencies {
+		// Resolve shadow plugin https://github.com/johnrengelman/shadow
+		classpath 'com.github.jengelman.gradle.plugins:shadow:2.0.0'
+	}
+}
 
 repositories {
 	mavenCentral()
@@ -36,4 +49,17 @@ dependencies {
 
 wrapper {
 	gradleVersion = 4.7
+}
+
+shadowJar {
+    // The jar has tons of files, causing "archive contains more than 65535 entries" without this,
+    // which enables Zip64 extension (https://en.wikipedia.org/wiki/Zip_(file_format)#ZIP64).
+    zip64 = true
+
+    // Do not copy the signatures in the META-INF folder. Otherwise,
+    // this might cause SecurityExceptions when using the JAR.
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+    exclude 'META-INF/LICENSE'
 }

@@ -24,6 +24,24 @@ This is more of a proof of concept implementation, not necessarily something pro
 
 Who am I to tell you what code to run in prod, I have to agree, but please double check the code you are planning to use :)
 
+## Building Bravo
+
+In order to build Bravo locally you only need to use the gradle wrapper already included in the project
+
+```bash
+cd bravo
+
+# Build project and run all tests
+./gradlew clean build
+
+# Build project and publish to local maven repo
+./gradlew clean install
+
+#Build fat-jar with non-flink dependencies
+./gradlew shadowJar
+```
+
+
 ## Reading states
 
 ### Reading and processing states
