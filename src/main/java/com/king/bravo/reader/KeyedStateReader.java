@@ -53,16 +53,16 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	protected int keygroupPrefixBytes;
 
 	protected boolean initialized = false;
-	protected boolean outputTypesForDeserialization = true;
+	protected boolean serializersFromState = false;
 
 	private TypeInformation<O> outType;
 
-	protected KeyedStateReader(String stateName, TypeInformation<K> outKeyType, TypeInformation<V> outValueType,
+	protected KeyedStateReader(String stateName, TypeInformation<K> keyType, TypeInformation<V> valueType,
 			TypeInformation<O> outType) {
 		this.stateName = stateName;
 		this.outType = outType;
-		this.valueType = outValueType;
-		this.keyType = outKeyType;
+		this.valueType = valueType;
+		this.keyType = keyType;
 	}
 
 	@Override
@@ -78,7 +78,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 
 		keygroupPrefixBytes = StateMetadataUtils.getKeyGroupPrefixBytes(maxParallelism);
 
-		if (!outputTypesForDeserialization) {
+		if (serializersFromState) {
 			if (this.keyDeserializer == null) {
 				this.keyDeserializer = (TypeSerializer<K>) keySerializer;
 			}
@@ -90,10 +90,8 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 		initialized = true;
 	}
 
-	public KeyedStateReader<K, V, O> withOutputTypesForDeserialization() {
-		outputTypesForDeserialization = true;
-		keyDeserializer = null;
-		valueDeserializer = null;
+	public KeyedStateReader<K, V, O> withSerializersFromState() {
+		serializersFromState = true;
 		return this;
 	}
 
