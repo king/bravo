@@ -42,6 +42,7 @@ public class MapStateKKVReader<K, MK, V> extends KeyedStateReader<K, V, Tuple3<K
 		super(stateName, outKeyType, outValueType,
 				new TupleTypeInfo(Tuple3.class, outKeyType, mapKeytype, outValueType));
 		this.mapKeytype = mapKeytype;
+		withValueDeserializer(outValueType);
 	}
 
 	@Override

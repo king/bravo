@@ -46,23 +46,23 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 
 	protected TypeSerializer<K> keyDeserializer;
 	protected TypeSerializer<V> valueDeserializer;
+	protected TypeInformation<K> keyDeserializerType;
+	protected TypeInformation<V> valueDeserializerType;
 
-	private final TypeInformation<K> keyType;
-	private final TypeInformation<V> valueType;
+	private final TypeInformation<K> outKeyType;
+	private final TypeInformation<V> outValueType;
+	private final TypeInformation<O> outType;
 
 	protected int keygroupPrefixBytes;
 
 	protected boolean initialized = false;
-	protected boolean serializersFromState = false;
-
-	private TypeInformation<O> outType;
 
 	protected KeyedStateReader(String stateName, TypeInformation<K> keyType, TypeInformation<V> valueType,
 			TypeInformation<O> outType) {
 		this.stateName = stateName;
 		this.outType = outType;
-		this.valueType = valueType;
-		this.keyType = keyType;
+		this.outValueType = valueType;
+		this.outKeyType = keyType;
 	}
 
 	@Override
@@ -78,20 +78,29 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 
 		keygroupPrefixBytes = StateMetadataUtils.getKeyGroupPrefixBytes(maxParallelism);
 
-		if (serializersFromState) {
-			if (this.keyDeserializer == null) {
-				this.keyDeserializer = (TypeSerializer<K>) keySerializer;
-			}
+		if (this.keyDeserializer == null && this.keyDeserializerType == null) {
+			this.keyDeserializer = (TypeSerializer<K>) keySerializer;
+		}
 
-			if (this.valueDeserializer == null) {
-				this.valueDeserializer = (TypeSerializer<V>) valueSerializer;
-			}
+		if (this.valueDeserializer == null && this.valueDeserializerType == null) {
+			this.valueDeserializer = (TypeSerializer<V>) valueSerializer;
 		}
 		initialized = true;
 	}
 
-	public KeyedStateReader<K, V, O> withSerializersFromState() {
-		serializersFromState = true;
+	public KeyedStateReader<K, V, O> withOutputTypesForDeserialization() {
+		withKeyDeserializer(outKeyType);
+		withValueDeserializer(outValueType);
+		return this;
+	}
+
+	public KeyedStateReader<K, V, O> withKeyDeserializer(TypeInformation<K> keyDeserializer) {
+		this.keyDeserializerType = Validate.notNull(keyDeserializer);
+		return this;
+	}
+
+	public KeyedStateReader<K, V, O> withValueDeserializer(TypeInformation<V> valueDeserializer) {
+		this.valueDeserializerType = Validate.notNull(valueDeserializer);
 		return this;
 	}
 
@@ -108,16 +117,17 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	@Override
 	public void open(Configuration c) {
 		ExecutionConfig executionConfig = getRuntimeContext().getExecutionConfig();
-		if (keyDeserializer == null && keyType != null) {
-			keyDeserializer = keyType.createSerializer(executionConfig);
-		}
-		if (valueDeserializer == null && valueType != null) {
-			valueDeserializer = valueType.createSerializer(executionConfig);
+
+		if (keyDeserializer == null) {
+			keyDeserializer = keyDeserializerType.createSerializer(executionConfig);
 		}
 
-		LOGGER.info(
-				"Initialized KeyedStateRowParser: keyDeserializer: {} valueDeserializer: {} outKeyType: {} outValueType: {}",
-				keyDeserializer, valueDeserializer, keyType, valueType);
+		if (valueDeserializer == null) {
+			valueDeserializer = valueDeserializerType.createSerializer(executionConfig);
+		}
+
+		LOGGER.info("Initialized KeyedStateReader: keyDeserializer: {} valueDeserializer: {}", keyDeserializer,
+				valueDeserializer);
 	}
 
 	/**
@@ -143,9 +153,9 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	}
 
 	/**
-	 * Create a reader for reading the state values for the given value state name.
-	 * The provided type info will be used to deserialize the state (allowing
-	 * possible optimizations)
+	 * Create a reader for reading the state values for the given value state
+	 * name. The provided type info will be used to deserialize the state
+	 * (allowing possible optimizations)
 	 */
 	public static <K, V> KeyedStateReader<K, V, V> forValueStateValues(String stateName,
 			TypeInformation<V> outValueType) {
@@ -153,19 +163,19 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	}
 
 	/**
-	 * Create a reader for reading the state values for the given map state name.
-	 * The provided type info will be used to deserialize the state (allowing
-	 * possible optimizations)
+	 * Create a reader for reading the state values for the given map state
+	 * name. The provided type info will be used to deserialize the state
+	 * (allowing possible optimizations)
 	 */
 	public static <K, V> KeyedStateReader<K, V, V> forMapStateValues(String stateName,
 			TypeInformation<V> outValueType) {
-		return new ValueStateValueReader<>(stateName, outValueType, true);
+		return new ValueStateValueReader<K, V>(stateName, outValueType, true).withValueDeserializer(outValueType);
 	}
 
 	/**
-	 * Create a reader for reading the state values for the given list state. The
-	 * provided type info will be used to deserialize the state (allowing possible
-	 * optimizations)
+	 * Create a reader for reading the state values for the given list state.
+	 * The provided type info will be used to deserialize the state (allowing
+	 * possible optimizations)
 	 */
 	public static <K, V> KeyedStateReader<K, V, Tuple2<K, V>> foListStateValues(String stateName,
 			TypeInformation<K> outKeyType, TypeInformation<V> outValueType) {
@@ -173,9 +183,9 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	}
 
 	/**
-	 * Create a reader for reading the state values for the given list state. The
-	 * provided type info will be used to deserialize the state (allowing possible
-	 * optimizations)
+	 * Create a reader for reading the state values for the given list state.
+	 * The provided type info will be used to deserialize the state (allowing
+	 * possible optimizations)
 	 */
 	public static <K, V> KeyedStateReader<K, V, Tuple2<K, List<V>>> foListStates(String stateName,
 			TypeInformation<K> outKeyType, TypeInformation<V> outValueType) {
@@ -183,9 +193,9 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	}
 
 	/**
-	 * Create a reader for reading the state key-mapkey-value triplets for the given
-	 * map state name. The provided type info will be used to deserialize the state
-	 * (allowing possible optimizations)
+	 * Create a reader for reading the state key-mapkey-value triplets for the
+	 * given map state name. The provided type info will be used to deserialize
+	 * the state (allowing possible optimizations)
 	 */
 	public static <K, MK, V> KeyedStateReader<K, V, Tuple3<K, MK, V>> forMapStateEntries(String stateName,
 			TypeInformation<K> outKeyType, TypeInformation<MK> outMapKeyType, TypeInformation<V> outValueType) {
@@ -193,9 +203,9 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	}
 
 	/**
-	 * Create a reader for reading the state values for the given value state name.
-	 * The provided type info will be used to deserialize the state (allowing
-	 * possible optimizations)
+	 * Create a reader for reading the state values for the given value state
+	 * name. The provided type info will be used to deserialize the state
+	 * (allowing possible optimizations)
 	 */
 	public static <K, V> KeyedStateReader<K, V, V> forValueStateValues(String stateName, TypeHint<V> outValueTypeHint) {
 		return forValueStateValues(stateName, outValueTypeHint.getTypeInfo());
