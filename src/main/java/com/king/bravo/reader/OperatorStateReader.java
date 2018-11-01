@@ -28,8 +28,11 @@ import java.util.Set;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
+import org.apache.flink.api.java.tuple.Tuple1;
+import org.apache.flink.api.java.typeutils.runtime.TupleSerializerBase;
 import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.checkpoint.StateObjectCollection;
 import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
@@ -96,7 +99,7 @@ public class OperatorStateReader {
 		readKeyedStates();
 		KeyedBackendSerializationProxy<?> proxy = StateMetadataUtils.getKeyedBackendSerializationProxy(opState)
 				.orElseThrow(() -> new IllegalStateException("Cannot read state of a stateless operator."));
-		reader.configure(opState.getMaxParallelism(), proxy.getKeySerializer(),
+		reader.configure(opState.getMaxParallelism(), getKeySerializer(proxy),
 				StateMetadataUtils.getSerializer(proxy, reader.getStateName())
 						.orElseThrow(() -> new IllegalArgumentException("Cannot find state " + reader.getStateName())));
 		DataSet<O> parsedState = allKeyedStateRows.flatMap(reader);
@@ -104,9 +107,20 @@ public class OperatorStateReader {
 		return parsedState;
 	}
 
+	private TypeSerializer<?> getKeySerializer(KeyedBackendSerializationProxy<?> proxy) {
+		TypeSerializer<?> keySerializer = proxy.getKeySerializer();
+		if (keySerializer instanceof TupleSerializerBase) {
+			TupleSerializerBase ts = (TupleSerializerBase) keySerializer;
+			if (ts.getTupleClass().equals(Tuple1.class)) {
+				return ts.getFieldSerializers()[0];
+			}
+		}
+		return keySerializer;
+	}
+
 	/**
-	 * @return DataSet containing all keyed states of the operator in a serialized
-	 *         form
+	 * @return DataSet containing all keyed states of the operator in a
+	 *         serialized form
 	 */
 	public DataSet<KeyedStateRow> getAllKeyedStateRows() {
 		readKeyedStates();
@@ -114,9 +128,9 @@ public class OperatorStateReader {
 	}
 
 	/**
-	 * Return all the keyed state rows that were not accessed using a reader. This
-	 * is a convenience method so we can union the untouched part of the state with
-	 * the changed parts before writing them back using the
+	 * Return all the keyed state rows that were not accessed using a reader.
+	 * This is a convenience method so we can union the untouched part of the
+	 * state with the changed parts before writing them back using the
 	 * {@link OperatorStateWriter}.
 	 */
 	public DataSet<KeyedStateRow> getAllUnreadKeyedStateRows() {
@@ -171,8 +185,8 @@ public class OperatorStateReader {
 	}
 
 	/**
-	 * Restores the OperatorStateBackends corresponding to the different subtasks.
-	 * The backends are completely restored in-memory.
+	 * Restores the OperatorStateBackends corresponding to the different
+	 * subtasks. The backends are completely restored in-memory.
 	 */
 	public Map<Integer, OperatorStateBackend> createOperatorStateBackendsFromSnapshot() throws Exception {
 		return Maps.transformValues(opState.getSubtaskStates(),

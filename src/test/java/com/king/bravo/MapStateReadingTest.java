@@ -68,8 +68,7 @@ public class MapStateReadingTest extends BravoTestPipeline {
 
 		List<Tuple3<Integer, String, Integer>> countState = reader
 				.readKeyedStates(KeyedStateReader.forMapStateEntries("Count", BasicTypeInfo.INT_TYPE_INFO,
-						BasicTypeInfo.STRING_TYPE_INFO, BasicTypeInfo.INT_TYPE_INFO)
-						.withOutputTypesForDeserialization())
+						BasicTypeInfo.STRING_TYPE_INFO, BasicTypeInfo.INT_TYPE_INFO))
 				.collect();
 
 		List<Integer> mapValues = reader
