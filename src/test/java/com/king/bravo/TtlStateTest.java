@@ -26,8 +26,14 @@ import java.util.List;
 import java.util.Optional;
 
 import org.apache.flink.api.common.functions.RichMapFunction;
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
+import org.apache.flink.api.common.state.StateTtlConfig;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.java.ExecutionEnvironment;
@@ -44,7 +50,7 @@ import com.king.bravo.reader.KeyedStateReader;
 import com.king.bravo.reader.OperatorStateReader;
 import com.king.bravo.testing.BravoTestPipeline;
 
-public class MapStateReadingTest extends BravoTestPipeline {
+public class TtlStateTest extends BravoTestPipeline {
 
 	private static final long serialVersionUID = 1L;
 
@@ -67,19 +73,46 @@ public class MapStateReadingTest extends BravoTestPipeline {
 		OperatorStateReader reader = new OperatorStateReader(environment, savepoint, "hello");
 
 		List<Tuple3<Integer, String, Integer>> countState = reader
-				.readKeyedStates(KeyedStateReader.forMapStateEntries("Count", BasicTypeInfo.INT_TYPE_INFO,
-						BasicTypeInfo.STRING_TYPE_INFO, BasicTypeInfo.INT_TYPE_INFO))
+				.readKeyedStates(KeyedStateReader.forMapStateEntries("Map", BasicTypeInfo.INT_TYPE_INFO,
+						BasicTypeInfo.STRING_TYPE_INFO, BasicTypeInfo.INT_TYPE_INFO, true))
 				.collect();
 
 		List<Integer> mapValues = reader
-				.readKeyedStates(KeyedStateReader.forMapStateValues("Count", BasicTypeInfo.INT_TYPE_INFO))
+				.readKeyedStates(KeyedStateReader.forMapStateValues("Map", BasicTypeInfo.INT_TYPE_INFO, true))
 				.collect();
+
+		Collections.sort(mapValues);
+		assertEquals(Lists.newArrayList(1, 1, 2), mapValues);
 
 		assertEquals(Sets.newHashSet(Tuple3.of(1, "1", 2), Tuple3.of(1, "2", 1), Tuple3.of(2, "3", 1)),
 				new HashSet<>(countState));
 
-		Collections.sort(mapValues);
-		assertEquals(Lists.newArrayList(1, 1, 2), mapValues);
+		List<Tuple2<Integer, List<Integer>>> listState = reader.readKeyedStates(
+				KeyedStateReader.forListStates("List", BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.INT_TYPE_INFO))
+				.collect();
+
+		assertEquals(Sets.newHashSet(Tuple2.of(1, Lists.newArrayList(1, 2, 1)), Tuple2.of(2, Lists.newArrayList(3))),
+				new HashSet<>(listState));
+
+		List<Tuple2<Integer, Integer>> listStateValues = reader.readKeyedStates(
+				KeyedStateReader.forListStateValues("List", BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.INT_TYPE_INFO))
+				.collect();
+
+		assertEquals(Sets.newHashSet(Tuple2.of(1, 1), Tuple2.of(1, 2), Tuple2.of(2, 3)),
+				new HashSet<>(listStateValues));
+
+		List<Tuple2<Integer, Integer>> valuePairs = reader.readKeyedStates(
+				KeyedStateReader.forValueStateKVPairs("Val", BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.INT_TYPE_INFO))
+				.collect();
+
+		assertEquals(Sets.newHashSet(Tuple2.of(1, 1), Tuple2.of(2, 3)), new HashSet<>(valuePairs));
+
+		List<Integer> values = reader.readKeyedStates(
+				KeyedStateReader.forValueStateValues("Val", BasicTypeInfo.INT_TYPE_INFO))
+				.collect();
+
+		assertEquals(Sets.newHashSet(1, 3), new HashSet<>(values));
+
 	}
 
 	public DataStream<String> constructTestPipeline(DataStream<String> source) {
@@ -97,18 +130,31 @@ public class MapStateReadingTest extends BravoTestPipeline {
 	public static class MapCounter extends RichMapFunction<Tuple2<Integer, Integer>, String> {
 
 		private static final long serialVersionUID = 7317800376639115920L;
-		private MapState<String, Integer> count;
+		private MapState<String, Integer> mapState;
+		private ListState<Integer> listState;
+		private ValueState<Integer> valueState;
 
 		@Override
 		public void open(Configuration parameters) throws Exception {
-			MapStateDescriptor<String, Integer> descriptor = new MapStateDescriptor<>("Count", String.class,
+			MapStateDescriptor<String, Integer> mapDesc = new MapStateDescriptor<>("Map", String.class,
 					Integer.class);
-			count = getRuntimeContext().getMapState(descriptor);
+			mapDesc.enableTimeToLive(StateTtlConfig.newBuilder(Time.minutes(100)).build());
+			mapState = getRuntimeContext().getMapState(mapDesc);
+
+			ListStateDescriptor<Integer> listDesc = new ListStateDescriptor<>("List", Integer.class);
+			listDesc.enableTimeToLive(StateTtlConfig.newBuilder(Time.minutes(100)).build());
+			listState = getRuntimeContext().getListState(listDesc);
+
+			ValueStateDescriptor<Integer> valueStateDesc = new ValueStateDescriptor<Integer>("Val", Integer.class);
+			valueStateDesc.enableTimeToLive(StateTtlConfig.newBuilder(Time.minutes(100)).build());
+			valueState = getRuntimeContext().getState(valueStateDesc);
 		}
 
 		@Override
 		public String map(Tuple2<Integer, Integer> value) throws Exception {
-			count.put(value.f1.toString(), Optional.ofNullable(count.get(value.f1.toString())).orElse(0) + 1);
+			mapState.put(value.f1.toString(), Optional.ofNullable(mapState.get(value.f1.toString())).orElse(0) + 1);
+			listState.add(value.f1);
+			valueState.update(value.f1);
 			return "";
 		}
 	}

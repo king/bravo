@@ -95,8 +95,8 @@ public class OperatorStateWriter {
 
 	/**
 	 * Defines the keyserializer for this operator. This method can be used when
-	 * adding state to a previously stateless operator where the keyserializer is
-	 * not available from the state.
+	 * adding state to a previously stateless operator where the keyserializer
+	 * is not available from the state.
 	 * 
 	 * @param keySerializer
 	 */
@@ -105,11 +105,12 @@ public class OperatorStateWriter {
 	}
 
 	/**
-	 * Add a Dataset of {@link KeyedStateRow}s to the state of the operator, this is
-	 * mostly used to migrate existing states of the operator to the new operator
-	 * state without modifications.
+	 * Add a Dataset of {@link KeyedStateRow}s to the state of the operator,
+	 * this is mostly used to migrate existing states of the operator to the new
+	 * operator state without modifications.
 	 * <p>
-	 * This can be used to add all different kinds of keyed states: value, list, map
+	 * This can be used to add all different kinds of keyed states: value, list,
+	 * map
 	 * 
 	 * @param rows
 	 *            State rows to be added
@@ -149,8 +150,8 @@ public class OperatorStateWriter {
 
 	/**
 	 * Adds a dataset of K-V pairs to the keyed state of the operator. This
-	 * operation assumes that a state with the same name is already defined and the
-	 * metadata is reused.
+	 * operation assumes that a state with the same name is already defined and
+	 * the metadata is reused.
 	 * <p>
 	 * To define new states see
 	 * {@link #createNewValueState(String, DataSet, TypeSerializer)}
@@ -163,12 +164,18 @@ public class OperatorStateWriter {
 	 */
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	public <K, V> void addValueState(String stateName, DataSet<Tuple2<K, V>> newState) {
+		TypeSerializer<V> valueSerializer = (TypeSerializer<V>) (TypeSerializer) StateMetadataUtils
+				.getSerializer(proxy, stateName)
+				.orElseThrow(
+						() -> new IllegalArgumentException("Cannot find state " + stateName));
+
+		if (StateMetadataUtils.isTtlState(valueSerializer)) {
+			throw new RuntimeException("Writing of TTL states is not supported at the moment.");
+		}
 		addKeyedStateRows(newState
 				.map(new ValueStateToKeyedStateRow<K, V>(stateName,
 						getKeySerializer(),
-						(TypeSerializer<V>) (TypeSerializer) StateMetadataUtils.getSerializer(proxy, stateName)
-								.orElseThrow(
-										() -> new IllegalArgumentException("Cannot find state " + stateName)),
+						valueSerializer,
 						baseOpState.getMaxParallelism())));
 	}
 
@@ -199,10 +206,11 @@ public class OperatorStateWriter {
 	}
 
 	/**
-	 * Triggers the batch processing operations to write the operator state data to
-	 * persistent storage and create the metadata object
+	 * Triggers the batch processing operations to write the operator state data
+	 * to persistent storage and create the metadata object
 	 * 
-	 * @return {@link OperatorState} metadata pointing to the newly written state
+	 * @return {@link OperatorState} metadata pointing to the newly written
+	 *         state
 	 */
 	public OperatorState writeAll() throws Exception {
 		int maxParallelism = baseOpState.getMaxParallelism();
@@ -215,7 +223,8 @@ public class OperatorStateWriter {
 				throw new IllegalStateException(
 						"States must be added when any modification of existing keyed states were made");
 			} else {
-				// Either keep all state or delete all (no need to do anything here)
+				// Either keep all state or delete all (no need to do anything
+				// here)
 			}
 		} else if (!metaSnapshots.isEmpty()) {
 			updateProxy();
@@ -239,7 +248,8 @@ public class OperatorStateWriter {
 		// We construct a new operatorstate with the collected handles
 		OperatorState newOperatorState = new OperatorState(baseOpState.getOperatorID(), parallelism, maxParallelism);
 
-		// Fill with the subtaskstates based on the old one (we need to preserve the
+		// Fill with the subtaskstates based on the old one (we need to preserve
+		// the
 		// other states)
 		baseOpState.getSubtaskStates().forEach((subtaskId, subtaskState) -> {
 			KeyedStateHandle newKeyedHandle = handleMap.get(subtaskId);
@@ -291,12 +301,13 @@ public class OperatorStateWriter {
 	}
 
 	/**
-	 * Transform the non-keyed state of the operator by applying a function to the
-	 * non-keyed state of each operator instance. Any update made to the
+	 * Transform the non-keyed state of the operator by applying a function to
+	 * the non-keyed state of each operator instance. Any update made to the
 	 * {@link OperatorStateBackend} will be stored back as the new state of the
 	 * operator.
 	 * <p>
-	 * The transformation will be executed sequentially, in-memory on the client.
+	 * The transformation will be executed sequentially, in-memory on the
+	 * client.
 	 * 
 	 * @param transformer
 	 *            Consumer to be applied on the {@link OperatorStateBackend}

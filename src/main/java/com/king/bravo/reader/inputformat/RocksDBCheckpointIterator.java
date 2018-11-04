@@ -30,6 +30,7 @@ import java.util.Map.Entry;
 
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.configuration.ConfigConstants;
+import org.apache.flink.contrib.streaming.state.RocksDBKeyedStateBackend;
 import org.apache.flink.contrib.streaming.state.RocksIteratorWrapper;
 import org.apache.flink.core.fs.CloseableRegistry;
 import org.apache.flink.core.fs.FSDataInputStream;
@@ -56,7 +57,9 @@ import com.king.bravo.utils.StateMetadataUtils;
 public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Closeable, Iterable<KeyedStateRow> {
 
 	private final DBOptions dbOptions = new DBOptions();
-	private final ColumnFamilyOptions colOptions = new ColumnFamilyOptions();
+	private final ColumnFamilyOptions colOptions = new ColumnFamilyOptions()
+			.setMergeOperatorName(RocksDBKeyedStateBackend.MERGE_OPERATOR_NAME);
+
 	private final RocksDB db;
 	private LinkedList<Entry<String, RocksIteratorWrapper>> iteratorQueue;
 
@@ -195,7 +198,8 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 
 		List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>(1 + stateColumnFamilyDescriptors.size());
 
-		// we add the required descriptor for the default CF in FIRST position, see
+		// we add the required descriptor for the default CF in FIRST position,
+		// see
 		// https://github.com/facebook/rocksdb/wiki/RocksJava-Basics#opening-a-database-with-column-families
 		columnFamilyDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, colOptions));
 		columnFamilyDescriptors.addAll(stateColumnFamilyDescriptors);

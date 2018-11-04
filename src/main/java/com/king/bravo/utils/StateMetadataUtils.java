@@ -19,6 +19,7 @@ package com.king.bravo.utils;
 
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collection;
@@ -27,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import org.apache.flink.api.common.typeutils.CompositeSerializer;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.core.fs.FSDataInputStream;
 import org.apache.flink.core.fs.FileSystem.WriteMode;
@@ -56,7 +58,8 @@ public class StateMetadataUtils {
 	 */
 	public static Savepoint loadSavepoint(String checkpointPointer) throws IOException {
 		try {
-			Method resolveCheckpointPointer = AbstractFsCheckpointStorage.class.getDeclaredMethod("resolveCheckpointPointer",
+			Method resolveCheckpointPointer = AbstractFsCheckpointStorage.class.getDeclaredMethod(
+					"resolveCheckpointPointer",
 					String.class);
 			resolveCheckpointPointer.setAccessible(true);
 			CompletedCheckpointStorageLocation loc = (CompletedCheckpointStorageLocation) resolveCheckpointPointer
@@ -88,8 +91,8 @@ public class StateMetadataUtils {
 	}
 
 	/**
-	 * Create a new {@link Savepoint} by replacing certain {@link OperatorState}s of
-	 * an old {@link Savepoint}
+	 * Create a new {@link Savepoint} by replacing certain
+	 * {@link OperatorState}s of an old {@link Savepoint}
 	 * 
 	 * @param oldSavepoint
 	 *            {@link Savepoint} to base the new state on
@@ -102,8 +105,8 @@ public class StateMetadataUtils {
 	}
 
 	/**
-	 * Create a new {@link Savepoint} by replacing certain {@link OperatorState}s of
-	 * an old {@link Savepoint}
+	 * Create a new {@link Savepoint} by replacing certain
+	 * {@link OperatorState}s of an old {@link Savepoint}
 	 * 
 	 * @param oldSavepoint
 	 *            {@link Savepoint} to base the new state on
@@ -186,6 +189,18 @@ public class StateMetadataUtils {
 		Checkpoints.storeCheckpointMetadata(savepoint,
 				newCheckpointBasePath.getFileSystem().create(p, WriteMode.NO_OVERWRITE));
 		return p;
+	}
+
+	public static boolean isTtlState(TypeSerializer<?> valueSerializer) {
+		boolean ttlSerializer = valueSerializer.getClass().getName()
+				.startsWith("org.apache.flink.runtime.state.ttl.TtlStateFactory$TtlSerializer");
+		return ttlSerializer;
+	}
+
+	public static <T> TypeSerializer<T> unwrapTtlSerializer(TypeSerializer<?> valueSerializer) throws Exception {
+		Field f = CompositeSerializer.class.getDeclaredField("fieldSerializers");
+		f.setAccessible(true);
+		return (TypeSerializer<T>) ((TypeSerializer<Object>[]) f.get(valueSerializer))[1];
 	}
 
 }

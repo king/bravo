@@ -17,6 +17,7 @@
  */
 package com.king.bravo.reader;
 
+import java.io.IOException;
 import java.util.List;
 
 import org.apache.commons.lang3.Validate;
@@ -30,6 +31,7 @@ import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.core.memory.DataInputViewStreamWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,6 +59,8 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 
 	protected boolean initialized = false;
 
+	protected boolean ttlState = false;
+
 	protected KeyedStateReader(String stateName, TypeInformation<K> keyType, TypeInformation<V> valueType,
 			TypeInformation<O> outType) {
 		this.stateName = stateName;
@@ -74,7 +78,8 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	}
 
 	@SuppressWarnings("unchecked")
-	public void configure(int maxParallelism, TypeSerializer<?> keySerializer, TypeSerializer<?> valueSerializer) {
+	public void configure(int maxParallelism, TypeSerializer<?> keySerializer, TypeSerializer<?> valueSerializer)
+			throws Exception {
 
 		keygroupPrefixBytes = StateMetadataUtils.getKeyGroupPrefixBytes(maxParallelism);
 
@@ -82,8 +87,14 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 			this.keyDeserializer = (TypeSerializer<K>) keySerializer;
 		}
 
+		boolean ttlSerializer = StateMetadataUtils.isTtlState(valueSerializer);
+		if (ttlSerializer) {
+			ttlState = true;
+		}
+
 		if (this.valueDeserializer == null && this.valueDeserializerType == null) {
-			this.valueDeserializer = (TypeSerializer<V>) valueSerializer;
+			this.valueDeserializer = ttlSerializer ? StateMetadataUtils.unwrapTtlSerializer(valueSerializer)
+					: (TypeSerializer<V>) valueSerializer;
 		}
 		initialized = true;
 	}
@@ -169,7 +180,20 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	 */
 	public static <K, V> KeyedStateReader<K, V, V> forMapStateValues(String stateName,
 			TypeInformation<V> outValueType) {
-		return new ValueStateValueReader<K, V>(stateName, outValueType, true).withValueDeserializer(outValueType);
+		return forMapStateValues(stateName, outValueType, false);
+	}
+
+	/**
+	 * Create a reader for reading the state values for the given map state
+	 * name. The provided type info will be used to deserialize the state
+	 * (allowing possible optimizations)
+	 */
+	public static <K, V> KeyedStateReader<K, V, V> forMapStateValues(String stateName,
+			TypeInformation<V> outValueType, boolean ttlState) {
+		KeyedStateReader<K, V, V> reader = new ValueStateValueReader<K, V>(stateName, outValueType, true)
+				.withValueDeserializer(outValueType);
+		reader.ttlState = ttlState;
+		return reader;
 	}
 
 	/**
@@ -177,7 +201,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	 * The provided type info will be used to deserialize the state (allowing
 	 * possible optimizations)
 	 */
-	public static <K, V> KeyedStateReader<K, V, Tuple2<K, V>> foListStateValues(String stateName,
+	public static <K, V> KeyedStateReader<K, V, Tuple2<K, V>> forListStateValues(String stateName,
 			TypeInformation<K> outKeyType, TypeInformation<V> outValueType) {
 		return new ListStateFlattenReader<>(stateName, outKeyType, outValueType);
 	}
@@ -187,7 +211,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	 * The provided type info will be used to deserialize the state (allowing
 	 * possible optimizations)
 	 */
-	public static <K, V> KeyedStateReader<K, V, Tuple2<K, List<V>>> foListStates(String stateName,
+	public static <K, V> KeyedStateReader<K, V, Tuple2<K, List<V>>> forListStates(String stateName,
 			TypeInformation<K> outKeyType, TypeInformation<V> outValueType) {
 		return new ListStateListReader<>(stateName, outKeyType, outValueType);
 	}
@@ -199,19 +223,31 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	 */
 	public static <K, MK, V> KeyedStateReader<K, V, Tuple3<K, MK, V>> forMapStateEntries(String stateName,
 			TypeInformation<K> outKeyType, TypeInformation<MK> outMapKeyType, TypeInformation<V> outValueType) {
-		return new MapStateKKVReader<>(stateName, outKeyType, outMapKeyType, outValueType);
+		return forMapStateEntries(stateName, outKeyType, outMapKeyType, outValueType, false);
 	}
 
 	/**
-	 * Create a reader for reading the state values for the given value state
-	 * name. The provided type info will be used to deserialize the state
-	 * (allowing possible optimizations)
+	 * Create a reader for reading the state key-mapkey-value triplets for the
+	 * given map state name. The provided type info will be used to deserialize
+	 * the state (allowing possible optimizations)
 	 */
-	public static <K, V> KeyedStateReader<K, V, V> forValueStateValues(String stateName, TypeHint<V> outValueTypeHint) {
-		return forValueStateValues(stateName, outValueTypeHint.getTypeInfo());
+	public static <K, MK, V> KeyedStateReader<K, V, Tuple3<K, MK, V>> forMapStateEntries(String stateName,
+			TypeInformation<K> outKeyType, TypeInformation<MK> outMapKeyType, TypeInformation<V> outValueType,
+			boolean ttlState) {
+
+		MapStateKKVReader<K, MK, V> reader = new MapStateKKVReader<>(stateName, outKeyType, outMapKeyType,
+				outValueType);
+		reader.ttlState = ttlState;
+		return reader;
 	}
 
 	public String getStateName() {
 		return stateName;
+	}
+
+	protected void skipTimestampIfTtlEnabled(DataInputViewStreamWrapper iw) throws IOException {
+		if (ttlState) {
+			iw.skipBytesToRead(Long.BYTES);
+		}
 	}
 }

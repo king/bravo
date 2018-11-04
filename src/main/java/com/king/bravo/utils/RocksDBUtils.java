@@ -27,7 +27,6 @@ import org.apache.flink.core.memory.ByteArrayOutputStreamWithPos;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataInputViewStreamWrapper;
 import org.apache.flink.core.memory.DataOutputView;
-import org.apache.flink.util.FlinkRuntimeException;
 
 /**
  * Utils for RocksDB state serialization and deserialization.
@@ -160,7 +159,7 @@ public class RocksDBUtils {
 	}
 
 	public static <V> List<V> deserializeList(
-			byte[] valueBytes, TypeSerializer<V> elementSerializer) {
+			byte[] valueBytes, TypeSerializer<V> elementSerializer, boolean ttl) throws IOException {
 		if (valueBytes == null) {
 			return null;
 		}
@@ -169,24 +168,24 @@ public class RocksDBUtils {
 
 		List<V> result = new ArrayList<>();
 		V next;
-		while ((next = deserializeNextElement(in, elementSerializer)) != null) {
+		while ((next = deserializeNextElement(in, elementSerializer, ttl)) != null) {
 			result.add(next);
 		}
 		return result;
 	}
 
 	public static <V> V deserializeNextElement(
-			DataInputViewStreamWrapper in, TypeSerializer<V> elementSerializer) {
-		try {
-			if (in.available() > 0) {
-				V element = elementSerializer.deserialize(in);
-				if (in.available() > 0) {
-					in.readByte();
-				}
-				return element;
+			DataInputViewStreamWrapper in, TypeSerializer<V> elementSerializer, boolean ttl) throws IOException {
+		if (in.available() > 0) {
+			if (ttl) {
+				in.skipBytesToRead(Long.BYTES);
 			}
-		} catch (IOException e) {
-			throw new FlinkRuntimeException("Unexpected list element deserialization failure");
+			V element = elementSerializer.deserialize(in);
+			if (in.available() > 0) {
+				in.readByte();
+			}
+			System.err.println(element);
+			return element;
 		}
 		return null;
 	}

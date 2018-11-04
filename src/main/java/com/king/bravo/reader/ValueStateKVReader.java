@@ -23,7 +23,6 @@ import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.core.memory.ByteArrayInputStreamWithPos;
 import org.apache.flink.core.memory.DataInputViewStreamWrapper;
 import org.apache.flink.util.Collector;
-import org.apache.flink.util.InstantiationUtil;
 
 import com.king.bravo.types.KeyedStateRow;
 import com.king.bravo.utils.RocksDBUtils;
@@ -53,7 +52,12 @@ public class ValueStateKVReader<K, V> extends KeyedStateReader<K, V, Tuple2<K, V
 			key = RocksDBUtils.readKey(keyDeserializer, keyIs, iw, false);
 		}
 
-		V value = InstantiationUtil.deserializeFromByteArray(valueDeserializer, valueBytes);
+		V value = null;
+		try (ByteArrayInputStreamWithPos valIs = new ByteArrayInputStreamWithPos(valueBytes)) {
+			DataInputViewStreamWrapper iw = new DataInputViewStreamWrapper(valIs);
+			skipTimestampIfTtlEnabled(iw);
+			value = valueDeserializer.deserialize(iw);
+		}
 		out.collect(Tuple2.of(key, value));
 	}
 }

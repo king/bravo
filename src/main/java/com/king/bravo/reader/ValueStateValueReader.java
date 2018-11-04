@@ -46,6 +46,7 @@ public class ValueStateValueReader<K, V> extends KeyedStateReader<K, V, V> {
 		try (ByteArrayInputStreamWithPos valIs = new ByteArrayInputStreamWithPos(valueBytes)) {
 			DataInputViewStreamWrapper iw = new DataInputViewStreamWrapper(valIs);
 			if (!nullable || !iw.readBoolean()) {
+				skipTimestampIfTtlEnabled(iw);
 				value = valueDeserializer.deserialize(iw);
 			}
 		}

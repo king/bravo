@@ -30,7 +30,7 @@ import org.apache.flink.util.Collector;
 import com.king.bravo.types.KeyedStateRow;
 import com.king.bravo.utils.RocksDBUtils;
 
-public class ListStateListReader<K, V> extends KeyedStateReader<K, V, Tuple2<K, List<V>>> {
+public class ListStateListReader<K, V> extends AbstractListStateReader<K, V, Tuple2<K, List<V>>> {
 
 	private static final long serialVersionUID = 1L;
 
@@ -56,6 +56,6 @@ public class ListStateListReader<K, V> extends KeyedStateReader<K, V, Tuple2<K, 
 			key = RocksDBUtils.readKey(keyDeserializer, keyIs, iw, false);
 		}
 
-		out.collect(Tuple2.of(key, RocksDBUtils.deserializeList(valueBytes, valueDeserializer)));
+		out.collect(Tuple2.of(key, RocksDBUtils.deserializeList(valueBytes, valueDeserializer, ttlState)));
 	}
 }

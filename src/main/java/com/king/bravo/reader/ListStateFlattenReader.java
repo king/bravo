@@ -27,7 +27,7 @@ import org.apache.flink.util.Collector;
 import com.king.bravo.types.KeyedStateRow;
 import com.king.bravo.utils.RocksDBUtils;
 
-public class ListStateFlattenReader<K, V> extends KeyedStateReader<K, V, Tuple2<K, V>> {
+public class ListStateFlattenReader<K, V> extends AbstractListStateReader<K, V, Tuple2<K, V>> {
 
 	private static final long serialVersionUID = 1L;
 
@@ -54,10 +54,10 @@ public class ListStateFlattenReader<K, V> extends KeyedStateReader<K, V, Tuple2<
 
 		try (ByteArrayInputStreamWithPos valueIs = new ByteArrayInputStreamWithPos(valueBytes)) {
 			DataInputViewStreamWrapper iw = new DataInputViewStreamWrapper(valueIs);
-			V next = RocksDBUtils.deserializeNextElement(iw, valueDeserializer);
+			V next = RocksDBUtils.deserializeNextElement(iw, valueDeserializer, ttlState);
 			while (next != null) {
 				out.collect(Tuple2.of(key, next));
-				next = RocksDBUtils.deserializeNextElement(iw, valueDeserializer);
+				next = RocksDBUtils.deserializeNextElement(iw, valueDeserializer, ttlState);
 			}
 		}
 	}

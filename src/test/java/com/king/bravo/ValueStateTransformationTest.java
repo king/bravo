@@ -127,7 +127,8 @@ public class ValueStateTransformationTest extends BravoTestPipeline {
 
 		@Override
 		public void open(Configuration parameters) throws Exception {
-			count = getRuntimeContext().getState(new ValueStateDescriptor<>("Count", Integer.class));
+			ValueStateDescriptor<Integer> descriptor = new ValueStateDescriptor<>("Count", Integer.class);
+			count = getRuntimeContext().getState(descriptor);
 		}
 
 		@Override

@@ -68,6 +68,7 @@ public class MapStateKKVReader<K, MK, V> extends KeyedStateReader<K, V, Tuple3<K
 		try (ByteArrayInputStreamWithPos valIs = new ByteArrayInputStreamWithPos(valueBytes)) {
 			DataInputViewStreamWrapper iw = new DataInputViewStreamWrapper(valIs);
 			if (!iw.readBoolean()) {
+				skipTimestampIfTtlEnabled(iw);
 				value = valueDeserializer.deserialize(iw);
 			}
 		}
