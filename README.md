@@ -69,6 +69,23 @@ DataSet<Tuple2<Integer, Integer>> countState = reader.readKeyedStates(
 // We can now work with the countState dataset and analyize it however we want :)
 ```
 
+The `KeyedStateReader` class provieds a set of methods for creating readers for different types of keyed states.
+
+Some examples:
+
+```
+KeyedStateReader.forValueStateKVPairs(...)
+KeyedStateReader.forValueStateValues(...)
+KeyedStateReader.forMapStateEntries(...)
+KeyedStateReader.forListStates(...)
+KeyedStateReader.forMapStateValues(...)
+```
+
+For more complete code examples on the usage of the specific readers please look at some of the test cases, they are actually quite nice:
+
+https://github.com/king/bravo/blob/master/src/test/java/com/king/bravo/TtlStateTest.java
+https://github.com/king/bravo/blob/master/src/test/java/com/king/bravo/ValueStateTransformationTest.java
+
 #### Accessing non-keyed states
 
 The reader assumes that the machine that we run the code has enough memory to restore the non-keyed states locally. (This is mostly a safe assumption with the current operator state design)
