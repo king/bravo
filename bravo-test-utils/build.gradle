@@ -1,0 +1,8 @@
+
+dependencies {
+  compile group: 'org.apache.flink', name: 'flink-clients_2.11', version: versions.flink
+  compile group: 'org.apache.flink', name: 'flink-runtime_2.11', version: versions.flink
+  compile group: 'org.apache.flink', name: 'flink-test-utils_2.11', version: versions.flink
+  compile group: 'org.apache.flink', name: 'flink-statebackend-rocksdb_2.11', version: versions.flink
+  compile group: 'org.apache.flink', name: 'flink-streaming-java_2.11', version: versions.flink
+}

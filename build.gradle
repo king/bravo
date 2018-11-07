@@ -1,65 +1,106 @@
-apply plugin: 'java'
-apply plugin: 'maven'
-apply plugin: 'com.github.johnrengelman.shadow'
-
-group = 'com.king.bravo'
-
 buildscript {
 	repositories {
 		maven { url "https://plugins.gradle.org/m2/" }
 	}
-	dependencies {
-		// Resolve shadow plugin https://github.com/johnrengelman/shadow
-		classpath 'com.github.jengelman.gradle.plugins:shadow:2.0.0'
-	}
-}
-
-repositories {
-	mavenCentral()
 }
 
 ext.versions = [
-	flink		: '1.6.+',
-	slf4j		: '1.7.+',
-	logback		: '1.2.+',
-	junit		: '4.+',
+	flink		: '1.6.2',
+	slf4j		: '1.7.25',
+	logback	: '1.2.3',
+	junit		: '4.12',
 ]
 
-configurations.all {
-	exclude module: 'commons-logging'
-	exclude module: 'log4j'
-	exclude module: 'slf4j-log4j12'
-}
+subprojects {
+	apply plugin: 'java'
+	apply plugin: 'maven'
+	apply plugin: 'signing'
 
-dependencies {
-    compile "com.google.guava:guava:18.0"
-	compileOnly "org.apache.flink:flink-streaming-java_2.11:${versions.flink}"
-	compileOnly "org.apache.flink:flink-statebackend-rocksdb_2.11:${versions.flink}"
-	compileOnly "org.apache.flink:flink-clients_2.11:${versions.flink}"
+	group = 'com.king.bravo'
+	version = '0.2'
 
-	testCompile "junit:junit:${versions.junit}"
-	testCompile "org.apache.flink:flink-runtime_2.11:${versions.flink}:tests"
-	testCompile "org.apache.flink:flink-statebackend-rocksdb_2.11:${versions.flink}"
-	testCompile "org.apache.flink:flink-test-utils_2.11:${versions.flink}"
+	repositories {
+		mavenCentral()
+	}
 
-	testRuntime "ch.qos.logback:logback-classic:${versions.logback}"
-	testRuntime "org.slf4j:log4j-over-slf4j:${versions.slf4j}"
-	testRuntime "org.slf4j:jcl-over-slf4j:${versions.slf4j}"
+	task javadocJar(type: Jar) {
+	    classifier = 'javadoc'
+	    from javadoc
+	}
+
+	task sourcesJar(type: Jar) {
+	    classifier = 'sources'
+	    from sourceSets.main.allSource
+	}
+
+	configurations.all {
+		exclude module: 'commons-logging'
+		exclude module: 'log4j'
+		exclude module: 'slf4j-log4j12'
+	}
+
+	dependencies {
+		
+		testCompile group: 'junit', name: 'junit', version: versions.junit
+		testRuntime group: 'ch.qos.logback', name: 'logback-classic', version: versions.logback
+		testRuntime group: 'org.slf4j', name: 'log4j-over-slf4j', version: versions.slf4j
+		testRuntime group: 'org.slf4j', name: 'jcl-over-slf4j', version: versions.slf4j
+	}
+
+	artifacts {
+    archives javadocJar, sourcesJar
+	}
+
+	signing {
+    sign configurations.archives
+   }
+
+	uploadArchives {
+	  repositories {
+	    mavenDeployer {
+
+				pom.project {
+					name 'bravo'
+					packaging 'jar'
+					description 'Utilities for processing Flink checkpoints/savepoints'
+					url 'https://github.com/king/bravo'
+
+					scm {
+						connection 'https://github.com/king/bravo.git'
+						developerConnection 'https://github.com/king/bravo.git'
+						url 'https://github.com/king/bravo'
+					}
+
+					licenses {
+						license {
+							name 'The Apache License, Version 2.0'
+							url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+						}
+					}
+
+					developers {
+						developer {
+							id 'gyula'
+							name 'Gyula Fora'
+							email 'gyula.fora@king.com'
+						}
+					}
+				}
+
+	      beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
+
+	      repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2/") {
+	        authentication(userName: nexusUsername, password: nexusPassword)
+	      }
+
+	      snapshotRepository(url: "https://oss.sonatype.org/content/repositories/snapshots/") {
+	        authentication(userName: nexusUsername, password: nexusPassword)
+	      }
+	    }
+      }
+   }
 }
 
 wrapper {
 	gradleVersion = 4.7
-}
-
-shadowJar {
-    // The jar has tons of files, causing "archive contains more than 65535 entries" without this,
-    // which enables Zip64 extension (https://en.wikipedia.org/wiki/Zip_(file_format)#ZIP64).
-    zip64 = true
-
-    // Do not copy the signatures in the META-INF folder. Otherwise,
-    // this might cause SecurityExceptions when using the JAR.
-    exclude 'META-INF/*.SF'
-    exclude 'META-INF/*.DSA'
-    exclude 'META-INF/*.RSA'
-    exclude 'META-INF/LICENSE'
 }

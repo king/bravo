@@ -1,5 +1,28 @@
 # Bravo
 
+## Maven central release
+
+**Bravo** [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.king.bravo/bravo/badge.svg)](https://maven-badges.herokuapp.com/maven-central/com.king.bravo/bravo)
+
+```
+<dependency>
+  <groupId>com.king.bravo</groupId>
+  <artifactId>bravo</artifactId>
+  <version>LATEST</version>
+</dependency>
+```
+
+**Bravo Test Utils** [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.king.bravo/bravo-test-utils/badge.svg)](https://maven-badges.herokuapp.com/maven-central/com.king.bravo/bravo-test-utils)
+
+```
+<dependency>
+  <groupId>com.king.bravo</groupId>
+  <artifactId>bravo-test-utils</artifactId>
+  <version>LATEST</version>
+  <scope>test</scope>
+</dependency>
+```
+
 ## Introduction
 
 Bravo is a convenient state reader and writer library leveraging the Flink’s
@@ -83,8 +106,7 @@ KeyedStateReader.forMapStateValues(...)
 
 For more complete code examples on the usage of the specific readers please look at some of the test cases, they are actually quite nice:
 
-https://github.com/king/bravo/blob/master/src/test/java/com/king/bravo/TtlStateTest.java
-https://github.com/king/bravo/blob/master/src/test/java/com/king/bravo/ValueStateTransformationTest.java
+https://github.com/king/bravo/blob/master/bravo/src/test/java/com/king/bravo/
 
 #### Accessing non-keyed states
 

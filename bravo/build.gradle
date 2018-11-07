@@ -1,0 +1,7 @@
+
+dependencies {
+  compile group: 'com.google.guava', name: 'guava', version: '18.0'
+  compileOnly group: 'org.apache.flink', name: 'flink-streaming-java_2.11', version: versions.flink
+  compileOnly group: 'org.apache.flink', name: 'flink-statebackend-rocksdb_2.11', version: versions.flink
+  testCompile (project(':bravo-test-utils'))
+}
