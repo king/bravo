@@ -17,7 +17,7 @@ subprojects {
 	apply plugin: 'signing'
 
 	group = 'com.king.bravo'
-	version = '0.2'
+	version = '0.3'
 
 	repositories {
 		mavenCentral()
@@ -40,7 +40,7 @@ subprojects {
 	}
 
 	dependencies {
-		
+
 		testCompile group: 'junit', name: 'junit', version: versions.junit
 		testRuntime group: 'ch.qos.logback', name: 'logback-classic', version: versions.logback
 		testRuntime group: 'org.slf4j', name: 'log4j-over-slf4j', version: versions.slf4j
