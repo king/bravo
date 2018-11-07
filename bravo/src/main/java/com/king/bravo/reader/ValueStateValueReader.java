@@ -27,11 +27,9 @@ import com.king.bravo.types.KeyedStateRow;
 public class ValueStateValueReader<K, V> extends KeyedStateReader<K, V, V> {
 
 	private static final long serialVersionUID = 1L;
-	private final boolean nullable;
 
-	public ValueStateValueReader(String stateName, TypeInformation<V> outValueType, boolean nullable) {
+	public ValueStateValueReader(String stateName, TypeInformation<V> outValueType) {
 		super(stateName, null, outValueType, outValueType);
-		this.nullable = nullable;
 	}
 
 	@Override
@@ -45,10 +43,8 @@ public class ValueStateValueReader<K, V> extends KeyedStateReader<K, V, V> {
 		V value = null;
 		try (ByteArrayInputStreamWithPos valIs = new ByteArrayInputStreamWithPos(valueBytes)) {
 			DataInputViewStreamWrapper iw = new DataInputViewStreamWrapper(valIs);
-			if (!nullable || !iw.readBoolean()) {
-				skipTimestampIfTtlEnabled(iw);
-				value = valueDeserializer.deserialize(iw);
-			}
+			skipTimestampIfTtlEnabled(iw);
+			value = valueDeserializer.deserialize(iw);
 		}
 		if (value == null) {
 			throw new RuntimeException("MapStates with null values are not supported at the moment.");

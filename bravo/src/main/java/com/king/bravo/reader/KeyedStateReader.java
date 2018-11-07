@@ -77,6 +77,10 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 		return outType;
 	}
 
+	/**
+	 * Internal method used to configure the reader based on the snapshot
+	 * information, should not be called by the user.
+	 */
 	@SuppressWarnings("unchecked")
 	public void configure(int maxParallelism, TypeSerializer<?> keySerializer, TypeSerializer<?> valueSerializer)
 			throws Exception {
@@ -99,27 +103,52 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 		initialized = true;
 	}
 
+	/**
+	 * Use the provided output types to deserialize the state. By default the
+	 * serializers from the state are used for this.
+	 * 
+	 */
 	public KeyedStateReader<K, V, O> withOutputTypesForDeserialization() {
 		withKeyDeserializer(outKeyType);
 		withValueDeserializer(outValueType);
 		return this;
 	}
 
+	/**
+	 * Use the provided serializer to deserialize the key bytes.
+	 * 
+	 * @param keyDeserializer
+	 */
 	public KeyedStateReader<K, V, O> withKeyDeserializer(TypeInformation<K> keyDeserializer) {
 		this.keyDeserializerType = Validate.notNull(keyDeserializer);
 		return this;
 	}
 
+	/**
+	 * Use the provided serializer to deserialize the value bytes.
+	 * 
+	 * @param valueDeserializer
+	 */
 	public KeyedStateReader<K, V, O> withValueDeserializer(TypeInformation<V> valueDeserializer) {
 		this.valueDeserializerType = Validate.notNull(valueDeserializer);
 		return this;
 	}
 
+	/**
+	 * Use the provided serializer to deserialize the key bytes.
+	 * 
+	 * @param keyDeserializer
+	 */
 	public KeyedStateReader<K, V, O> withKeyDeserializer(TypeSerializer<K> keyDeserializer) {
 		this.keyDeserializer = Validate.notNull(keyDeserializer);
 		return this;
 	}
 
+	/**
+	 * Use the provided serializer to deserialize the value bytes.
+	 * 
+	 * @param valueDeserializer
+	 */
 	public KeyedStateReader<K, V, O> withValueDeserializer(TypeSerializer<V> valueDeserializer) {
 		this.valueDeserializer = Validate.notNull(valueDeserializer);
 		return this;
@@ -170,7 +199,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	 */
 	public static <K, V> KeyedStateReader<K, V, V> forValueStateValues(String stateName,
 			TypeInformation<V> outValueType) {
-		return new ValueStateValueReader<>(stateName, outValueType, false);
+		return new ValueStateValueReader<>(stateName, outValueType);
 	}
 
 	/**
@@ -190,10 +219,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	 */
 	public static <K, V> KeyedStateReader<K, V, V> forMapStateValues(String stateName,
 			TypeInformation<V> outValueType, boolean ttlState) {
-		KeyedStateReader<K, V, V> reader = new ValueStateValueReader<K, V>(stateName, outValueType, true)
-				.withValueDeserializer(outValueType);
-		reader.ttlState = ttlState;
-		return reader;
+		return new MapStateValueReader<K, V>(stateName, outValueType);
 	}
 
 	/**
@@ -223,22 +249,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	 */
 	public static <K, MK, V> KeyedStateReader<K, V, Tuple3<K, MK, V>> forMapStateEntries(String stateName,
 			TypeInformation<K> outKeyType, TypeInformation<MK> outMapKeyType, TypeInformation<V> outValueType) {
-		return forMapStateEntries(stateName, outKeyType, outMapKeyType, outValueType, false);
-	}
-
-	/**
-	 * Create a reader for reading the state key-mapkey-value triplets for the
-	 * given map state name. The provided type info will be used to deserialize
-	 * the state (allowing possible optimizations)
-	 */
-	public static <K, MK, V> KeyedStateReader<K, V, Tuple3<K, MK, V>> forMapStateEntries(String stateName,
-			TypeInformation<K> outKeyType, TypeInformation<MK> outMapKeyType, TypeInformation<V> outValueType,
-			boolean ttlState) {
-
-		MapStateKKVReader<K, MK, V> reader = new MapStateKKVReader<>(stateName, outKeyType, outMapKeyType,
-				outValueType);
-		reader.ttlState = ttlState;
-		return reader;
+		return new MapStateKKVReader<>(stateName, outKeyType, outMapKeyType, outValueType);
 	}
 
 	public String getStateName() {

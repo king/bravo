@@ -74,7 +74,7 @@ public class TtlStateTest extends BravoTestPipeline {
 
 		List<Tuple3<Integer, String, Integer>> countState = reader
 				.readKeyedStates(KeyedStateReader.forMapStateEntries("Map", BasicTypeInfo.INT_TYPE_INFO,
-						BasicTypeInfo.STRING_TYPE_INFO, BasicTypeInfo.INT_TYPE_INFO, true))
+						BasicTypeInfo.STRING_TYPE_INFO, BasicTypeInfo.INT_TYPE_INFO))
 				.collect();
 
 		List<Integer> mapValues = reader

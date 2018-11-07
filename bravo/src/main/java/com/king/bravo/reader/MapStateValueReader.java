@@ -18,54 +18,27 @@
 package com.king.bravo.reader;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.api.java.tuple.Tuple3;
-import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.core.memory.ByteArrayInputStreamWithPos;
 import org.apache.flink.core.memory.DataInputViewStreamWrapper;
-import org.apache.flink.runtime.state.VoidNamespaceSerializer;
 import org.apache.flink.util.Collector;
 
 import com.king.bravo.types.KeyedStateRow;
-import com.king.bravo.utils.RocksDBUtils;
 
-public class MapStateKKVReader<K, MK, V> extends AbstractMapStateReader<K, V, Tuple3<K, MK, V>> {
+public class MapStateValueReader<K, V> extends AbstractMapStateReader<K, V, V> {
 
 	private static final long serialVersionUID = 1L;
-	private TypeInformation<MK> outMapKeyType;
 
-	@SuppressWarnings({ "rawtypes", "unchecked" })
-	public MapStateKKVReader(String stateName, TypeInformation<K> outKeyType, TypeInformation<MK> mapKeytype,
-			TypeInformation<V> outValueType) {
-		super(stateName, outKeyType, outValueType,
-				new TupleTypeInfo(Tuple3.class, outKeyType, mapKeytype, outValueType));
-		outMapKeyType = mapKeytype;
+	public MapStateValueReader(String stateName, TypeInformation<V> outValueType) {
+		super(stateName, null, outValueType, outValueType);
 	}
 
 	@Override
-	public KeyedStateReader<K, V, Tuple3<K, MK, V>> withOutputTypesForDeserialization() {
-		mapKeytype = outMapKeyType;
-		return super.withOutputTypesForDeserialization();
-	}
-
-	@SuppressWarnings("unchecked")
-	@Override
-	public void flatMap(KeyedStateRow row, Collector<Tuple3<K, MK, V>> out) throws Exception {
+	public void flatMap(KeyedStateRow row, Collector<V> out) throws Exception {
 		if (!stateName.equals(row.getStateName())) {
 			return;
 		}
 
-		byte[] keyAndNamespaceBytes = row.getKeyAndNamespaceBytes();
 		byte[] valueBytes = row.getValueBytes();
-
-		K key;
-		MK mapKey;
-		try (ByteArrayInputStreamWithPos keyIs = new ByteArrayInputStreamWithPos(keyAndNamespaceBytes)) {
-			DataInputViewStreamWrapper iw = new DataInputViewStreamWrapper(keyIs);
-			iw.skipBytesToRead(keygroupPrefixBytes);
-			key = RocksDBUtils.readKey(keyDeserializer, keyIs, iw, false);
-			VoidNamespaceSerializer.INSTANCE.deserialize(iw);
-			mapKey = (MK) mapKeySerializer.deserialize(iw);
-		}
 
 		V value = null;
 		try (ByteArrayInputStreamWithPos valIs = new ByteArrayInputStreamWithPos(valueBytes)) {
@@ -77,8 +50,8 @@ public class MapStateKKVReader<K, MK, V> extends AbstractMapStateReader<K, V, Tu
 		}
 		if (value == null) {
 			throw new RuntimeException("MapStates with null values are not supported at the moment.");
+		} else {
+			out.collect(value);
 		}
-		out.collect(Tuple3.of(key, mapKey, value));
 	}
-
 }

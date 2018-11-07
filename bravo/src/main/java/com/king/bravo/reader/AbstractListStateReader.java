@@ -37,7 +37,7 @@ public abstract class AbstractListStateReader<K, V, O> extends KeyedStateReader<
 			super.configure(maxParallelism, keySerializer,
 					((ListSerializer<?>) valueSerializer).getElementSerializer());
 		} else {
-			super.configure(maxParallelism, keySerializer, valueSerializer);
+			throw new RuntimeException("Doesnt seem to be a list state");
 		}
 	}
 }
