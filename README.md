@@ -1,7 +1,5 @@
 # Bravo
 
-## Maven central release
-
 **Bravo** [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.king.bravo/bravo/badge.svg)](https://maven-badges.herokuapp.com/maven-central/com.king.bravo/bravo)
 
 ```
@@ -22,6 +20,8 @@
   <scope>test</scope>
 </dependency>
 ```
+
+*Note: The Flink dependencies of Bravo are declared compileOnly (provided in Maven world) so that it wont conflict with your own Flink version. This means that we assume that you already have that dependencies in your project*
 
 ## Introduction
 
@@ -59,9 +59,6 @@ cd bravo
 
 # Build project and publish to local maven repo
 ./gradlew clean install
-
-#Build fat-jar with non-flink dependencies
-./gradlew shadowJar
 ```
 
 
