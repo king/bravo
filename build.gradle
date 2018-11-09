@@ -55,6 +55,10 @@ subprojects {
     sign configurations.archives
    }
 
+	 tasks.withType(Sign) {
+      onlyIf {project.hasProperty('release') && release}
+	}
+
 	uploadArchives {
 	  repositories {
 	    mavenDeployer {
@@ -90,15 +94,16 @@ subprojects {
 	      beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
 
 	      repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2/") {
-	        authentication(userName: nexusUsername, password: nexusPassword)
+	        authentication(userName: project.findProperty('nexusUsername') ?: '', password: project.findProperty('nexusPassword') ?: '')
 	      }
 
 	      snapshotRepository(url: "https://oss.sonatype.org/content/repositories/snapshots/") {
-	        authentication(userName: nexusUsername, password: nexusPassword)
+	        authentication(userName: project.findProperty('nexusUsername') ?: '', password: project.findProperty('nexusPassword') ?: '')
 	      }
 	    }
       }
    }
+
 }
 
 wrapper {
