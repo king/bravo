@@ -152,7 +152,9 @@ public class StateMetadataUtils {
 		for (StateMetaInfoSnapshot snapshot : proxy.getStateMetaInfoSnapshots()) {
 			if (snapshot.getName().equals(stateName)) {
 				return Optional
-						.of((TypeSerializer<T>) snapshot.getTypeSerializer(CommonSerializerKeys.VALUE_SERIALIZER));
+						.of((TypeSerializer<T>) snapshot
+								.getTypeSerializerConfigSnapshot(CommonSerializerKeys.VALUE_SERIALIZER)
+								.restoreSerializer());
 			}
 		}
 
@@ -174,7 +176,7 @@ public class StateMetadataUtils {
 	public static KeyedBackendSerializationProxy<?> getKeyedBackendSerializationProxy(
 			StreamStateHandle streamStateHandle) {
 		KeyedBackendSerializationProxy<Integer> serializationProxy = new KeyedBackendSerializationProxy<>(
-				StateMetadataUtils.class.getClassLoader(), false);
+				StateMetadataUtils.class.getClassLoader());
 		try (FSDataInputStream is = streamStateHandle.openInputStream()) {
 			DataInputViewStreamWrapper iw = new DataInputViewStreamWrapper(is);
 			serializationProxy.read(iw);

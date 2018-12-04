@@ -108,7 +108,7 @@ public class OperatorStateReader {
 	}
 
 	private TypeSerializer<?> getKeySerializer(KeyedBackendSerializationProxy<?> proxy) {
-		TypeSerializer<?> keySerializer = proxy.getKeySerializer();
+		TypeSerializer<?> keySerializer = proxy.getKeySerializerConfigSnapshot().restoreSerializer();
 		if (keySerializer instanceof TupleSerializerBase) {
 			TupleSerializerBase ts = (TupleSerializerBase) keySerializer;
 			if (ts.getTupleClass().equals(Tuple1.class)) {

@@ -17,6 +17,7 @@
  */
 package com.king.bravo.writer;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,10 +29,12 @@ import java.util.function.BiConsumer;
 import org.apache.flink.api.common.operators.Order;
 import org.apache.flink.api.common.state.StateDescriptor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.api.common.typeutils.TypeSerializerSnapshot;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.fs.Path;
-import org.apache.flink.core.memory.ByteArrayDataOutputView;
+import org.apache.flink.core.memory.DataOutputView;
+import org.apache.flink.core.memory.DataOutputViewStreamWrapper;
 import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.checkpoint.OperatorSubtaskState;
 import org.apache.flink.runtime.checkpoint.StateObjectCollection;
@@ -46,6 +49,7 @@ import org.apache.flink.runtime.state.RegisteredKeyValueStateBackendMetaInfo;
 import org.apache.flink.runtime.state.VoidNamespaceSerializer;
 import org.apache.flink.runtime.state.filesystem.FileBasedStateOutputStream;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
+import org.apache.flink.shaded.guava18.com.google.common.collect.Maps;
 
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Lists;
@@ -89,7 +93,12 @@ public class OperatorStateWriter {
 		proxy = StateMetadataUtils.getKeyedBackendSerializationProxy(baseOpState).orElse(null);
 		metaSnapshots = new HashMap<>();
 		if (proxy != null) {
-			proxy.getStateMetaInfoSnapshots().forEach(ms -> metaSnapshots.put(ms.getName(), ms));
+			proxy.getStateMetaInfoSnapshots()
+					.forEach(ms -> metaSnapshots.put(ms.getName(),
+							new StateMetaInfoSnapshot(ms.getName(), ms.getBackendStateType(), ms.getOptionsImmutable(),
+									ms.getSerializerConfigSnapshotsImmutable(),
+									Maps.transformValues(ms.getSerializerConfigSnapshotsImmutable(),
+											TypeSerializerSnapshot::restoreSerializer))));
 		}
 	}
 
@@ -145,7 +154,8 @@ public class OperatorStateWriter {
 
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	private <T> TypeSerializer<T> getKeySerializer() {
-		return proxy != null ? (TypeSerializer) proxy.getKeySerializer() : (TypeSerializer) keySerializer;
+		return proxy != null ? (TypeSerializer) proxy.getKeySerializerConfigSnapshot().restoreSerializer()
+				: (TypeSerializer) keySerializer;
 	}
 
 	/**
@@ -228,7 +238,8 @@ public class OperatorStateWriter {
 			}
 		} else if (!metaSnapshots.isEmpty()) {
 			updateProxy();
-			ByteArrayDataOutputView bow = new ByteArrayDataOutputView();
+			ByteArrayOutputStream os = new ByteArrayOutputStream();
+			DataOutputView bow = new DataOutputViewStreamWrapper(os);
 			proxy.write(bow);
 
 			DataSet<Tuple2<Integer, KeyedStateHandle>> handles = allRows
@@ -237,7 +248,7 @@ public class OperatorStateWriter {
 					.sortGroup(new KeyGroupAndStateNameKey(maxParallelism), Order.ASCENDING)
 					.reduceGroup(new RocksDBSavepointWriter(maxParallelism, parallelism,
 							HashBiMap.create(StateMetadataUtils.getStateIdMapping(proxy)).inverse(),
-							proxy.isUsingKeyGroupCompression(), outDir, bow.toByteArray()));
+							proxy.isUsingKeyGroupCompression(), outDir, os.toByteArray()));
 
 			handles.collect().stream().forEach(t -> handleMap.put(t.f0, t.f1));
 		} else {

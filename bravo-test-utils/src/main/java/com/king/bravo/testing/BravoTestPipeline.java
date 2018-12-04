@@ -173,7 +173,8 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 			// client.setDetached(true);
 			client.submitJob(jobGraph, BravoTestPipeline.class.getClassLoader());
 		} catch (ProgramInvocationException pie) {
-			if (!pie.getMessage().contains("Job was cancelled")) {
+			if (!pie.getMessage().contains("Job was cancelled")
+					&& !pie.getCause().getMessage().contains("Job was cancelled")) {
 				throw pie;
 			}
 		} finally {

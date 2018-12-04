@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.flink.api.common.typeutils.TypeSerializer;
-import org.apache.flink.core.memory.ByteArrayDataInputView;
 import org.apache.flink.core.memory.ByteArrayInputStreamWithPos;
 import org.apache.flink.core.memory.ByteArrayOutputStreamWithPos;
 import org.apache.flink.core.memory.DataInputView;
@@ -164,7 +163,9 @@ public class RocksDBUtils {
 			return null;
 		}
 
-		DataInputViewStreamWrapper in = new ByteArrayDataInputView(valueBytes);
+		
+		ByteArrayInputStreamWithPos is = new ByteArrayInputStreamWithPos(valueBytes);
+		DataInputViewStreamWrapper in = new DataInputViewStreamWrapper(is);
 
 		List<V> result = new ArrayList<>();
 		V next;
