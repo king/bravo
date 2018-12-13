@@ -1,33 +1,28 @@
 package com.king.bravo;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Sets;
-import com.king.bravo.reader.KeyedStateReader;
 import com.king.bravo.reader.OperatorStateReader;
+import com.king.bravo.reader.ValueStateValueReader;
 import com.king.bravo.testing.BravoTestPipeline;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
-import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.api.java.typeutils.MapTypeInfo;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
-import org.apache.flink.shaded.curator.org.apache.curator.shaded.com.google.common.collect.Lists;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.junit.Ignore;
 import org.junit.Test;
 
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-
-import static org.junit.Assert.assertEquals;
 
 @Ignore
 public class ReducingStateReadingTest extends BravoTestPipeline {
@@ -36,6 +31,7 @@ public class ReducingStateReadingTest extends BravoTestPipeline {
     public static final String REDUCER_UID = "test-reducer";
     // TODO where is this set in Flink code?
     public static final String REDUCER_STATE_NAME = "window-contents";
+    private static final MapTypeInfo<String, String> MAP_TYPE_INFO = new MapTypeInfo<>(String.class, String.class);;
 
     @Test
     public void test() throws Exception {
@@ -43,7 +39,6 @@ public class ReducingStateReadingTest extends BravoTestPipeline {
         process("2,3");
         process("1,2");
         process("1,1");
-        // TODO use a countdown latch somewhere?
         sleep(5000);
         cancelJob();
         runTestPipeline(this::constructTestPipeline);
@@ -56,29 +51,26 @@ public class ReducingStateReadingTest extends BravoTestPipeline {
         Savepoint savepoint = getLastCheckpoint();
         OperatorStateReader reader = new OperatorStateReader(environment, savepoint, REDUCER_UID);
 
-        List<Tuple3<Integer, String, Integer>> countState = reader
-                .readKeyedStates(KeyedStateReader.forMapStateEntries(REDUCER_STATE_NAME, BasicTypeInfo.INT_TYPE_INFO,
-                        BasicTypeInfo.STRING_TYPE_INFO, BasicTypeInfo.INT_TYPE_INFO))
+        List<Tuple3<Map<String, String>, String, Map<String, String>>> countState = reader
+                .readKeyedStates(new ValueStateValueReader(REDUCER_STATE_NAME, MAP_TYPE_INFO))
                 .collect();
 
-        List<Integer> mapValues = reader
-                .readKeyedStates(KeyedStateReader.forMapStateValues(REDUCER_STATE_NAME, BasicTypeInfo.INT_TYPE_INFO))
+        System.out.println("countState = " + countState);
+
+        final List<Map<String, String>> mapValues = reader
+                .readKeyedStates(new ValueStateValueReader(REDUCER_STATE_NAME, MAP_TYPE_INFO))
                 .collect();
 
-        assertEquals(Sets.newHashSet(Tuple3.of(1, "1", 2), Tuple3.of(1, "2", 1), Tuple3.of(2, "3", 1)),
-                new HashSet<>(countState));
-
-        Collections.sort(mapValues);
-        assertEquals(Lists.newArrayList(1, 1, 2), mapValues);
+        System.out.println("mapValues = " + mapValues);
     }
 
     public DataStream<String> constructTestPipeline(DataStream<String> source) {
         return source
                 .map(s -> {
                     String[] split = s.split(",");
-                    return new HashMap<>(ImmutableMap.of(split[0], split[1]));
+                    return (Map<String, String>) new HashMap<>(ImmutableMap.of(split[0], split[1]));
                 })
-                .returns(new TypeHint<HashMap<String, String>>() {})
+                .returns(new TypeHint<Map<String, String>>() {})
                 .keyBy(map -> map.keySet().iterator().next())
                 .timeWindow(Time.seconds(1))
                 .reduce((v1, v2) -> {
