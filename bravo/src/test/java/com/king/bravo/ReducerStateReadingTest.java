@@ -68,7 +68,7 @@ public class ReducerStateReadingTest extends BravoTestPipeline {
                 .returns(new TypeHint<HashMap<String, String>>() {})
                 .keyBy(map -> map.keySet().iterator().next())
                 .timeWindow(Time.milliseconds(1))
-                .reduce((v1, v2) -> v1)
+                .reduce((l, r) -> l.values().iterator().next().compareTo(r.values().iterator().next()) > 0 ? r : l)
                 .uid(REDUCER_UID)
                 // convert output type to be compatible with BravoTestPipeline#runTestPipeline
                 .map(Map::toString);
