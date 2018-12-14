@@ -109,7 +109,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	/**
 	 * Use the provided output types to deserialize the state. By default the
 	 * serializers from the state are used for this.
-	 * 
+	 *
 	 */
 	public KeyedStateReader<K, V, O> withOutputTypesForDeserialization() {
 		withKeyDeserializer(outKeyType);
@@ -119,7 +119,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 
 	/**
 	 * Use the provided serializer to deserialize the key bytes.
-	 * 
+	 *
 	 * @param keyDeserializer
 	 */
 	public KeyedStateReader<K, V, O> withKeyDeserializer(TypeInformation<K> keyDeserializer) {
@@ -129,7 +129,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 
 	/**
 	 * Use the provided serializer to deserialize the value bytes.
-	 * 
+	 *
 	 * @param valueDeserializer
 	 */
 	public KeyedStateReader<K, V, O> withValueDeserializer(TypeInformation<V> valueDeserializer) {
@@ -139,7 +139,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 
 	/**
 	 * Use the provided serializer to deserialize the key bytes.
-	 * 
+	 *
 	 * @param keyDeserializer
 	 */
 	public KeyedStateReader<K, V, O> withKeyDeserializer(TypeSerializer<K> keyDeserializer) {
@@ -149,7 +149,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 
 	/**
 	 * Use the provided serializer to deserialize the value bytes.
-	 * 
+	 *
 	 * @param valueDeserializer
 	 */
 	public KeyedStateReader<K, V, O> withValueDeserializer(TypeSerializer<V> valueDeserializer) {
@@ -267,7 +267,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
      * Create a reader for state key-value pairs of a reduce operator. The provided type info will be used to
      * deserialize the state (allowing possible optimizations)
      */
-	public static <K, V> KeyedStateReader<K, V, Tuple2<K, V>>  forReducerStateKVPairs(
+	public static <K, V> KeyedStateReader<K, V, Tuple2<K, V>> forReducerStateKVPairs(
 			TypeInformation<K> outKeyType, TypeInformation<V> outValueType) {
 		return new ValueStateKVReader(REDUCER_STATE_NAME, outKeyType, outValueType);
 	}
