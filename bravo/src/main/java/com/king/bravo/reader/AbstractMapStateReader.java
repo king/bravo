@@ -20,7 +20,6 @@ package com.king.bravo.reader;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.common.typeutils.base.MapSerializer;
-import org.apache.flink.api.java.typeutils.runtime.kryo.KryoSerializer;
 import org.apache.flink.configuration.Configuration;
 
 public abstract class AbstractMapStateReader<K, V, O> extends KeyedStateReader<K, V, O> {
@@ -55,13 +54,6 @@ public abstract class AbstractMapStateReader<K, V, O> extends KeyedStateReader<K
 			}
 
 			super.configure(maxParallelism, keySerializer, mapSerializer.getValueSerializer());
-        } else if (valueSerializer instanceof KryoSerializer) {
-            KryoSerializer<?> kryoSerializer = (KryoSerializer<?>) valueSerializer;
-            if (mapKeytype == null && mapKeySerializer == null) {
-                mapKeySerializer = (TypeSerializer<Object>) kryoSerializer;
-            }
-
-            super.configure(maxParallelism, keySerializer, kryoSerializer);
 		} else {
 			throw new RuntimeException("Doesnt seem like a map state");
 		}

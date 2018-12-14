@@ -68,7 +68,9 @@ cd bravo
 
 The `OperatorStateReader` provides DataSet input format that understands RocksDB savepoints and checkpoints and can extract keyed state rows from it. The input format creates input splits by operator subtask of the savepoint at the moment but we can change this to split by keygroups directly.
 
-The reader can also be used to provide in-memory access to non-keyed states.
+The reader can also be used to provide in-memory [access to non-keyed states](#accessing-non-keyed-states).
+
+For example, this code snippet shows how to read keys & values of a _keyed value state_:
 
 ```java
 // First we start by taking a savepoint/checkpoint of our running job...
@@ -77,19 +79,19 @@ Savepoint savepoint = StateMetadataUtils.loadSavepoint(savepointPath);
 
 ExecutionEnvironment env = ExecutionEnvironment.getEnvironment();
 
-// We create a KeyedStateReader for accessing the state of the operator CountPerKey
+// We create a KeyedStateReader for accessing the state of the operator with the UID "CountPerKey"
 OperatorStateReader reader = new OperatorStateReader(env, savepoint, "CountPerKey");
 
-// The reader now has access to all keyed states of the CountPerKey
-// We are going to read one specific value state named Count
-// The DataSet contains the key-state tuples from our state
+// The reader now has access to all keyed states of the "CountPerKey" operator
+// We are going to read one specific value state named "Count"
+// The DataSet contains the key-value tuples from our state
 DataSet<Tuple2<Integer, Integer>> countState = reader.readKeyedStates(
 		KeyedStateReader.forValueStateKVPairs("Count", new TypeHint<Tuple2<Integer, Integer>>() {}));
 
-// We can now work with the countState dataset and analyize it however we want :)
+// We can now work with the countState dataset and analyze it however we want :)
 ```
 
-The `KeyedStateReader` class provieds a set of methods for creating readers for different types of keyed states.
+The `KeyedStateReader` class provides a set of methods for creating readers for different types of keyed states.
 
 Some examples:
 
@@ -99,6 +101,7 @@ KeyedStateReader.forValueStateValues(...)
 KeyedStateReader.forMapStateEntries(...)
 KeyedStateReader.forListStates(...)
 KeyedStateReader.forMapStateValues(...)
+KeyedStateReader.forReducerStateValues(...)
 ```
 
 For more complete code examples on the usage of the specific readers please look at some of the test cases, they are actually quite nice:

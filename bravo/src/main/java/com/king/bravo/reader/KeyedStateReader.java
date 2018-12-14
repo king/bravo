@@ -17,9 +17,8 @@
  */
 package com.king.bravo.reader;
 
-import java.io.IOException;
-import java.util.List;
-
+import com.king.bravo.types.KeyedStateRow;
+import com.king.bravo.utils.StateMetadataUtils;
 import org.apache.commons.lang3.Validate;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
@@ -35,14 +34,18 @@ import org.apache.flink.core.memory.DataInputViewStreamWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.king.bravo.types.KeyedStateRow;
-import com.king.bravo.utils.StateMetadataUtils;
+import java.io.IOException;
+import java.util.List;
 
 public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<KeyedStateRow, O>
 		implements ResultTypeQueryable<O> {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(KeyedStateReader.class);
 	private static final long serialVersionUID = 1L;
+
+	// The name "window-contents" appears as a plain string in many places in Flink source code. There is no constant
+	// that we could refer from Flink.
+	private static final String REDUCER_STATE_NAME = "window-contents";
 
 	protected final String stateName;
 
@@ -250,6 +253,23 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	public static <K, MK, V> KeyedStateReader<K, V, Tuple3<K, MK, V>> forMapStateEntries(String stateName,
 			TypeInformation<K> outKeyType, TypeInformation<MK> outMapKeyType, TypeInformation<V> outValueType) {
 		return new MapStateKKVReader<>(stateName, outKeyType, outMapKeyType, outValueType);
+	}
+
+    /**
+     * Create a reader for state values of a reduce operator. The provided type info will be used to deserialize the
+     * state (allowing possible optimizations)
+     */
+	public static <K, V> KeyedStateReader<K, V, V> forReducerStateValues(TypeInformation<V> outValueType) {
+		return new ValueStateValueReader(REDUCER_STATE_NAME, outValueType);
+	}
+
+    /**
+     * Create a reader for state key-value pairs of a reduce operator. The provided type info will be used to
+     * deserialize the state (allowing possible optimizations)
+     */
+	public static <K, V> KeyedStateReader<K, V, Tuple2<K, V>>  forReducerStateKVPairs(
+			TypeInformation<K> outKeyType, TypeInformation<V> outValueType) {
+		return new ValueStateKVReader(REDUCER_STATE_NAME, outKeyType, outValueType);
 	}
 
 	public String getStateName() {
