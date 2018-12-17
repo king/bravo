@@ -17,15 +17,13 @@
  */
 package com.king.bravo.testing;
 
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.Serializable;
-import java.lang.reflect.Method;
-import java.util.Arrays;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.function.Function;
-
+import com.king.bravo.testing.actions.CancelJob;
+import com.king.bravo.testing.actions.NextWatermark;
+import com.king.bravo.testing.actions.Process;
+import com.king.bravo.testing.actions.Sleep;
+import com.king.bravo.testing.actions.TestPipelineSource;
+import com.king.bravo.testing.actions.TriggerFailure;
+import com.king.bravo.testing.actions.TriggerSavepoint;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.client.program.ClusterClient;
 import org.apache.flink.client.program.ProgramInvocationException;
@@ -55,13 +53,14 @@ import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.king.bravo.testing.actions.CancelJob;
-import com.king.bravo.testing.actions.NextWatermark;
-import com.king.bravo.testing.actions.Process;
-import com.king.bravo.testing.actions.Sleep;
-import com.king.bravo.testing.actions.TestPipelineSource;
-import com.king.bravo.testing.actions.TriggerFailure;
-import com.king.bravo.testing.actions.TriggerSavepoint;
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.Serializable;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.function.Function;
 
 public abstract class BravoTestPipeline extends TestLogger implements Serializable {
 	private static final long serialVersionUID = 1L;
@@ -236,7 +235,7 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 		sleep(time.toMilliseconds());
 	}
 
-	public static Savepoint loadSavepoint(String checkpointPointer) throws IOException {
+	public static Savepoint loadSavepoint(String checkpointPointer) {
 		try {
 			Method resolveCheckpointPointer = AbstractFsCheckpointStorage.class.getDeclaredMethod(
 					"resolveCheckpointPointer",
@@ -247,8 +246,8 @@ public abstract class BravoTestPipeline extends TestLogger implements Serializab
 
 			return Checkpoints.loadCheckpointMetadata(new DataInputStream(loc.getMetadataHandle().openInputStream()),
 					BravoTestPipeline.class.getClassLoader());
-		} catch (Throwable t) {
-			throw new RuntimeException(t);
+		} catch (Exception e) {
+			throw new RuntimeException(e);
 		}
 
 	}
