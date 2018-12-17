@@ -77,7 +77,7 @@ For example, this code snippet shows how to read keys & values of a _keyed value
 // Now it's time to load the metadata
 Savepoint savepoint = StateMetadataUtils.loadSavepoint(savepointPath);
 
-ExecutionEnvironment env = ExecutionEnvironment.getEnvironment();
+ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
 // We create a KeyedStateReader for accessing the state of the operator with the UID "CountPerKey"
 OperatorStateReader reader = new OperatorStateReader(env, savepoint, "CountPerKey");
