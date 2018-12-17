@@ -17,17 +17,6 @@
  */
 package com.king.bravo.utils;
 
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Collectors;
-
 import org.apache.flink.api.common.typeutils.CompositeSerializer;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.core.fs.FSDataInputStream;
@@ -51,6 +40,17 @@ import org.apache.flink.runtime.state.filesystem.AbstractFsCheckpointStorage;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot.CommonSerializerKeys;
 
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
 public class StateMetadataUtils {
 
 	/**
@@ -67,8 +67,8 @@ public class StateMetadataUtils {
 
 			return Checkpoints.loadCheckpointMetadata(new DataInputStream(loc.getMetadataHandle().openInputStream()),
 					StateMetadataUtils.class.getClassLoader());
-		} catch (Throwable t) {
-			throw new RuntimeException(t);
+		} catch (Exception e) {
+			throw new RuntimeException(e);
 		}
 
 	}
@@ -134,7 +134,7 @@ public class StateMetadataUtils {
 			} else {
 				return Optional.of(getKeyedBackendSerializationProxy((StreamStateHandle) firstHandle));
 			}
-		} catch (Throwable t) {
+		} catch (Exception e) {
 			return Optional.empty();
 		}
 	}
