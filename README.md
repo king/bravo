@@ -23,6 +23,8 @@
 
 *Note: The Flink dependencies of Bravo are declared compileOnly (provided in Maven world) so that it wont conflict with your own Flink version. This means that we assume that you already have that dependencies in your project*
 
+*Note: The latest version of Bravo only runs on Flink 1.7.0, but is able to read savepoints/checkpoints that have been created by older Flink versions. At least 1.6.0 created savepoints have been read successfully.*
+
 ## Introduction
 
 Bravo is a convenient state reader and writer library leveraging the Flink’s
