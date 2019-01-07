@@ -96,8 +96,8 @@ public class OperatorStateWriter {
 			proxy.getStateMetaInfoSnapshots()
 					.forEach(ms -> metaSnapshots.put(ms.getName(),
 							new StateMetaInfoSnapshot(ms.getName(), ms.getBackendStateType(), ms.getOptionsImmutable(),
-									ms.getSerializerConfigSnapshotsImmutable(),
-									Maps.transformValues(ms.getSerializerConfigSnapshotsImmutable(),
+									ms.getSerializerSnapshotsImmutable(),
+									Maps.transformValues(ms.getSerializerSnapshotsImmutable(),
 											TypeSerializerSnapshot::restoreSerializer))));
 		}
 	}

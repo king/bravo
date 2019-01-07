@@ -5,7 +5,7 @@ buildscript {
 }
 
 ext.versions = [
-	flink		: '1.7.0',
+	flink		: '1.7.1',
 	slf4j		: '1.7.25',
 	logback	: '1.2.3',
 	junit		: '4.12',

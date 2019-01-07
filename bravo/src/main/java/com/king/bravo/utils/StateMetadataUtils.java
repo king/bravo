@@ -153,7 +153,7 @@ public class StateMetadataUtils {
 			if (snapshot.getName().equals(stateName)) {
 				return Optional
 						.of((TypeSerializer<T>) snapshot
-								.getTypeSerializerConfigSnapshot(CommonSerializerKeys.VALUE_SERIALIZER)
+								.getTypeSerializerSnapshot(CommonSerializerKeys.VALUE_SERIALIZER)
 								.restoreSerializer());
 			}
 		}
