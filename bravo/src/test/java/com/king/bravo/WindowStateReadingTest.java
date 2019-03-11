@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
 import static org.apache.flink.api.java.ExecutionEnvironment.createLocalEnvironment;
 import static org.junit.Assert.assertEquals;
 
-public class ReducerStateReadingTest extends BravoTestPipeline {
+public class WindowStateReadingTest extends BravoTestPipeline {
 
     private static final long serialVersionUID = 1L;
     private static final String REDUCER_UID = "test-reducer";
