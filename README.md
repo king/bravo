@@ -103,7 +103,7 @@ KeyedStateReader.forValueStateValues(...)
 KeyedStateReader.forMapStateEntries(...)
 KeyedStateReader.forListStates(...)
 KeyedStateReader.forMapStateValues(...)
-KeyedStateReader.forReducerStateValues(...)
+KeyedStateReader.forWindowStateValues(...)
 ```
 
 For more complete code examples on the usage of the specific readers please look at some of the test cases, they are actually quite nice:

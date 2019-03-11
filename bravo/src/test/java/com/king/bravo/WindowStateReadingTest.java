@@ -29,20 +29,20 @@ public class WindowStateReadingTest extends BravoTestPipeline {
     private static final MapTypeInfo<String, String> MAP_TYPE_INFO = new MapTypeInfo<>(String.class, String.class);
 
     @Test
-    public void readReducerState() throws Exception {
+    public void readWindowState() throws Exception {
         Arrays.asList("1,1", "2,3", "1,2", "1,1").stream().forEach(this::process);
         sleep(1000);
         cancelJob();
         runTestPipeline(this::constructTestPipeline);
         OperatorStateReader reader = new OperatorStateReader(createLocalEnvironment(), getLastCheckpoint(),
                 REDUCER_UID);
-        assertReadReducerStateValues(reader);
-        assertReadReducerStateKVPairs(reader);
+        assertReadWindowStateValues(reader);
+        assertReadWindowStateKVPairs(reader);
     }
 
-    private void assertReadReducerStateValues(OperatorStateReader reader) throws Exception {
+    private void assertReadWindowStateValues(OperatorStateReader reader) throws Exception {
         List<Map<String, String>> mapValues = reader.readKeyedStates(KeyedStateReader
-                .forReducerStateValues(MAP_TYPE_INFO)).collect();
+                .forWindowStateValues(MAP_TYPE_INFO)).collect();
 
         assertEquals(
                 ImmutableSet.of(
@@ -51,9 +51,9 @@ public class WindowStateReadingTest extends BravoTestPipeline {
                 ), ImmutableSet.copyOf(mapValues));
     }
 
-    private void assertReadReducerStateKVPairs(OperatorStateReader reader) throws Exception {
+    private void assertReadWindowStateKVPairs(OperatorStateReader reader) throws Exception {
         List<Tuple2<String, Map<String, String>>> mapKeysAndValues = reader.readKeyedStates(KeyedStateReader
-                .forReducerStateKVPairs(BasicTypeInfo.STRING_TYPE_INFO, MAP_TYPE_INFO)).collect();
+                .forWindowStateKVPairs(BasicTypeInfo.STRING_TYPE_INFO, MAP_TYPE_INFO)).collect();
 
         assertEquals(
                 ImmutableMap.of(

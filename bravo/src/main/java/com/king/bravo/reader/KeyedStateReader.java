@@ -45,7 +45,7 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 
 	// The name "window-contents" appears as a plain string in many places in Flink source code. There is no constant
 	// that we could refer from Flink.
-	private static final String REDUCER_STATE_NAME = "window-contents";
+	private static final String WINDOW_STATE_NAME = "window-contents";
 
 	protected final String stateName;
 
@@ -256,20 +256,20 @@ public abstract class KeyedStateReader<K, V, O> extends RichFlatMapFunction<Keye
 	}
 
     /**
-     * Create a reader for state values of a reduce operator. The provided type info will be used to deserialize the
+     * Create a reader for state values of a window operator. The provided type info will be used to deserialize the
      * state (allowing possible optimizations)
      */
-	public static <K, V> KeyedStateReader<K, V, V> forReducerStateValues(TypeInformation<V> outValueType) {
-		return new ValueStateValueReader(REDUCER_STATE_NAME, outValueType);
+	public static <K, V> KeyedStateReader<K, V, V> forWindowStateValues(TypeInformation<V> outValueType) {
+		return new ValueStateValueReader(WINDOW_STATE_NAME, outValueType);
 	}
 
     /**
-     * Create a reader for state key-value pairs of a reduce operator. The provided type info will be used to
+     * Create a reader for state key-value pairs of a window operator. The provided type info will be used to
      * deserialize the state (allowing possible optimizations)
      */
-	public static <K, V> KeyedStateReader<K, V, Tuple2<K, V>> forReducerStateKVPairs(
+	public static <K, V> KeyedStateReader<K, V, Tuple2<K, V>> forWindowStateKVPairs(
 			TypeInformation<K> outKeyType, TypeInformation<V> outValueType) {
-		return new ValueStateKVReader(REDUCER_STATE_NAME, outKeyType, outValueType);
+		return new ValueStateKVReader(WINDOW_STATE_NAME, outKeyType, outValueType);
 	}
 
 	public String getStateName() {
