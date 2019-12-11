@@ -17,14 +17,7 @@
  */
 package com.king.bravo.reader.inputformat;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.UUID;
-import java.util.stream.StreamSupport;
-
+import com.king.bravo.types.KeyedStateRow;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.io.DefaultInputSplitAssigner;
 import org.apache.flink.api.common.io.RichInputFormat;
@@ -33,11 +26,17 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.io.InputSplitAssigner;
 import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.io.disk.iomanager.IOManagerAsync;
-import org.apache.flink.runtime.state.IncrementalKeyedStateHandle;
+import org.apache.flink.runtime.state.IncrementalRemoteKeyedStateHandle;
 import org.apache.flink.runtime.state.KeyGroupsStateHandle;
 import org.apache.flink.util.IOUtils;
 
-import com.king.bravo.types.KeyedStateRow;
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.StreamSupport;
 
 /**
  * InputFormat for reading all {@link KeyedStateRow} for the specified state ids
@@ -74,13 +73,13 @@ public class RocksDBKeyedStateInputFormat extends RichInputFormat<KeyedStateRow,
 				.getManagedKeyedState()
 				.stream()
 				.map(keyedStateHandle -> {
-					if (keyedStateHandle instanceof IncrementalKeyedStateHandle) {
+					if (keyedStateHandle instanceof IncrementalRemoteKeyedStateHandle) {
 						File localDir = new File(spillingDirectoriesPaths[0], "rocksdb_" + UUID.randomUUID());
 						if (!localDir.mkdirs()) {
 							throw new RuntimeException("Could not create " + localDir);
 						}
 						RocksDBCheckpointIterator iterator = new RocksDBCheckpointIterator(
-								(IncrementalKeyedStateHandle) keyedStateHandle,
+								(IncrementalRemoteKeyedStateHandle) keyedStateHandle,
 								stateFilter, localDir.getAbsolutePath());
 						iterators.add(iterator);
 						return iterator;

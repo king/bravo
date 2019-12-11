@@ -29,7 +29,7 @@ import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
 import org.apache.flink.runtime.checkpoint.savepoint.SavepointV2;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.state.CompletedCheckpointStorageLocation;
-import org.apache.flink.runtime.state.IncrementalKeyedStateHandle;
+import org.apache.flink.runtime.state.IncrementalRemoteKeyedStateHandle;
 import org.apache.flink.runtime.state.KeyedBackendSerializationProxy;
 import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.SnappyStreamCompressionDecorator;
@@ -128,9 +128,9 @@ public class StateMetadataUtils {
 		try {
 			KeyedStateHandle firstHandle = opState.getStates().iterator().next().getManagedKeyedState().iterator()
 					.next();
-			if (firstHandle instanceof IncrementalKeyedStateHandle) {
+			if (firstHandle instanceof IncrementalRemoteKeyedStateHandle) {
 				return Optional.of(getKeyedBackendSerializationProxy(
-						((IncrementalKeyedStateHandle) firstHandle).getMetaStateHandle()));
+						((IncrementalRemoteKeyedStateHandle) firstHandle).getMetaStateHandle()));
 			} else {
 				return Optional.of(getKeyedBackendSerializationProxy((StreamStateHandle) firstHandle));
 			}

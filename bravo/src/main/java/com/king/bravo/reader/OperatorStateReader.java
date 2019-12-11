@@ -17,14 +17,10 @@
  */
 package com.king.bravo.reader;
 
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
+import com.king.bravo.reader.inputformat.RocksDBKeyedStateInputFormat;
+import com.king.bravo.types.KeyedStateRow;
+import com.king.bravo.utils.StateMetadataUtils;
+import com.king.bravo.writer.OperatorStateWriter;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.state.ListState;
@@ -33,19 +29,24 @@ import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.tuple.Tuple1;
 import org.apache.flink.api.java.typeutils.runtime.TupleSerializerBase;
+import org.apache.flink.core.fs.CloseableRegistry;
 import org.apache.flink.runtime.checkpoint.OperatorState;
 import org.apache.flink.runtime.checkpoint.StateObjectCollection;
 import org.apache.flink.runtime.checkpoint.savepoint.Savepoint;
 import org.apache.flink.runtime.state.DefaultOperatorStateBackend;
+import org.apache.flink.runtime.state.DefaultOperatorStateBackendBuilder;
 import org.apache.flink.runtime.state.KeyedBackendSerializationProxy;
 import org.apache.flink.runtime.state.OperatorStateBackend;
 import org.apache.flink.runtime.state.OperatorStateHandle;
 import org.apache.flink.shaded.curator.org.apache.curator.shaded.com.google.common.collect.Maps;
 
-import com.king.bravo.reader.inputformat.RocksDBKeyedStateInputFormat;
-import com.king.bravo.types.KeyedStateRow;
-import com.king.bravo.utils.StateMetadataUtils;
-import com.king.bravo.writer.OperatorStateWriter;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Utility for reading the states stored in a Flink operator into DataSets.
@@ -108,7 +109,7 @@ public class OperatorStateReader {
 	}
 
 	private TypeSerializer<?> getKeySerializer(KeyedBackendSerializationProxy<?> proxy) {
-		TypeSerializer<?> keySerializer = proxy.getKeySerializerConfigSnapshot().restoreSerializer();
+		TypeSerializer<?> keySerializer = proxy.getKeySerializerSnapshot().restoreSerializer();
 		if (keySerializer instanceof TupleSerializerBase) {
 			TupleSerializerBase ts = (TupleSerializerBase) keySerializer;
 			if (ts.getTupleClass().equals(Tuple1.class)) {
@@ -203,10 +204,8 @@ public class OperatorStateReader {
 			StateObjectCollection<OperatorStateHandle> managedOpState)
 			throws Exception {
 
-		DefaultOperatorStateBackend stateBackend = new DefaultOperatorStateBackend(
-				OperatorStateReader.class.getClassLoader(), new ExecutionConfig(), false);
-
-		stateBackend.restore(managedOpState);
-		return stateBackend;
+		return new DefaultOperatorStateBackendBuilder(
+				OperatorStateReader.class.getClassLoader(), new ExecutionConfig(), false,
+				managedOpState, new CloseableRegistry()).build();
 	}
 }

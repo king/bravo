@@ -17,15 +17,16 @@
  */
 package com.king.bravo.writer;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
-import java.util.function.BiConsumer;
-
+import com.google.common.collect.HashBiMap;
+import com.google.common.collect.Lists;
+import com.king.bravo.reader.OperatorStateReader;
+import com.king.bravo.types.KeyedStateRow;
+import com.king.bravo.utils.StateMetadataUtils;
+import com.king.bravo.writer.functions.KeyGroupAndStateNameKey;
+import com.king.bravo.writer.functions.OperatorIndexForKeyGroupKey;
+import com.king.bravo.writer.functions.RocksDBSavepointWriter;
+import com.king.bravo.writer.functions.RowFilter;
+import com.king.bravo.writer.functions.ValueStateToKeyedStateRow;
 import org.apache.flink.api.common.operators.Order;
 import org.apache.flink.api.common.state.StateDescriptor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
@@ -51,16 +52,14 @@ import org.apache.flink.runtime.state.filesystem.FileBasedStateOutputStream;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
 import org.apache.flink.shaded.guava18.com.google.common.collect.Maps;
 
-import com.google.common.collect.HashBiMap;
-import com.google.common.collect.Lists;
-import com.king.bravo.reader.OperatorStateReader;
-import com.king.bravo.types.KeyedStateRow;
-import com.king.bravo.utils.StateMetadataUtils;
-import com.king.bravo.writer.functions.KeyGroupAndStateNameKey;
-import com.king.bravo.writer.functions.OperatorIndexForKeyGroupKey;
-import com.king.bravo.writer.functions.RocksDBSavepointWriter;
-import com.king.bravo.writer.functions.RowFilter;
-import com.king.bravo.writer.functions.ValueStateToKeyedStateRow;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.BiConsumer;
 
 /**
  * Utility for creating new OperatorStates based on old checkpointed data and
@@ -154,7 +153,7 @@ public class OperatorStateWriter {
 
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	private <T> TypeSerializer<T> getKeySerializer() {
-		return proxy != null ? (TypeSerializer) proxy.getKeySerializerConfigSnapshot().restoreSerializer()
+		return proxy != null ? (TypeSerializer) proxy.getKeySerializerSnapshot().restoreSerializer()
 				: (TypeSerializer) keySerializer;
 	}
 

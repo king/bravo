@@ -17,17 +17,8 @@
  */
 package com.king.bravo.reader.inputformat;
 
-import java.io.Closeable;
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-
+import com.king.bravo.types.KeyedStateRow;
+import com.king.bravo.utils.StateMetadataUtils;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.configuration.ConfigConstants;
 import org.apache.flink.contrib.streaming.state.RocksDBKeyedStateBackend;
@@ -37,7 +28,7 @@ import org.apache.flink.core.fs.FSDataInputStream;
 import org.apache.flink.core.fs.FSDataOutputStream;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
-import org.apache.flink.runtime.state.IncrementalKeyedStateHandle;
+import org.apache.flink.runtime.state.IncrementalRemoteKeyedStateHandle;
 import org.apache.flink.runtime.state.StateHandleID;
 import org.apache.flink.runtime.state.StreamStateHandle;
 import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
@@ -51,8 +42,16 @@ import org.rocksdb.DBOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 
-import com.king.bravo.types.KeyedStateRow;
-import com.king.bravo.utils.StateMetadataUtils;
+import java.io.Closeable;
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 
 public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Closeable, Iterable<KeyedStateRow> {
 
@@ -70,8 +69,8 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 	private CloseableRegistry cancelStreamRegistry;
 	private String localPath;
 
-	public RocksDBCheckpointIterator(IncrementalKeyedStateHandle handle, FilterFunction<String> stateFilter,
-			String localPath) {
+	public RocksDBCheckpointIterator(IncrementalRemoteKeyedStateHandle handle, FilterFunction<String> stateFilter,
+									 String localPath) {
 		this.localPath = localPath;
 		this.cancelStreamRegistry = new CloseableRegistry();
 		List<StateMetaInfoSnapshot> stateMetaInfoSnapshots = StateMetadataUtils
@@ -90,7 +89,7 @@ public class RocksDBCheckpointIterator implements Iterator<KeyedStateRow>, Close
 	}
 
 	private void transferAllStateDataToDirectory(
-			IncrementalKeyedStateHandle restoreStateHandle,
+			IncrementalRemoteKeyedStateHandle restoreStateHandle,
 			Path dest) throws IOException {
 
 		final Map<StateHandleID, StreamStateHandle> sstFiles = restoreStateHandle.getSharedState();
